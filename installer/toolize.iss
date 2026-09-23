@@ -43,7 +43,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
-Source: "{#SourceDir}\..\extension\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs
+; Chrome refuses to load an unpacked extension from under Program Files, so the
+; extension lives in ProgramData — where it can also be loaded by hand if needed.
+Source: "{#SourceDir}\..\extension\*"; DestDir: "{commonappdata}\Toolize\extension"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\Toolize"; Filename: "{app}\Toolize.Gui.exe"
@@ -81,7 +83,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete Toolize"; Flags: runhidden; RunOnc
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{commonappdata}Toolizeextension"
+Type: filesandordirs; Name: "{commonappdata}\Toolize\extension"
 
 [Code]
 // Inno's StringChangeEx returns a count, not the string; wrap it for readability.

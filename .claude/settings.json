@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(git --version)",
+      "Bash(npm view *)",
+      "Bash(node -e ' *)",
+      "Bash(npx tsc *)",
+      "Bash(node build.mjs --dev)",
+      "Bash(npm run *)",
+      "Bash(npm i *)",
+      "Bash(grep -v \"^  dist\\\\|^Done\\\\|^$\")",
+      "Bash(sed -i 's#'\\\\''E:/GithubProjects/Toolize/extension/node_modules/playwright-core/index.mjs'\\\\''#'\\\\''file:///E:/GithubProjects/Toolize/extension/node_modules/playwright-core/index.mjs'\\\\''#' C:/Users/boss_/AppData/Local/Temp/claude/e--GithubProjects-Toolize/5c343182-afd1-4c49-93bf-aaa7281c96e0/scratchpad/diag.mjs)",
+      "Bash(node C:/Users/boss_/AppData/Local/Temp/claude/e--GithubProjects-Toolize/5c343182-afd1-4c49-93bf-aaa7281c96e0/scratchpad/diag.mjs)",
+      "Bash(grep -v \"^  dist\\\\|^Done\\\\|^$\\\\|^>\")",
+      "Bash(sed -i 's#^for \\(const l of log\\) console.log\\(l.join\\(. .\\)\\);#for \\(const l of log\\) console.log\\(l.join\\(\" \"\\)\\);\\\\nconst inf = await sw.evaluate\\(\\(\\) => chrome.runtime.sendMessage\\({ target: \"offscreen\", kind: \"engineInfo\" }\\)\\);\\\\nconsole.log\\(\"fetch|decode|crop|infer \\(ms from job start\\)\"\\); for \\(const d of inf.dbg\\) console.log\\(d.join\\(\" \"\\)\\);#' __TRACKED_VAR__/diag2.mjs)",
+      "Bash(node __TRACKED_VAR__/diag2.mjs)",
+      "Bash(node \"C:/Users/boss_/AppData/Local/Temp/claude/e--GithubProjects-Toolize/5c343182-afd1-4c49-93bf-aaa7281c96e0/scratchpad/diag2.mjs\")",
+      "Bash(sed -i 's/      error: loadError, ...\\({dbg:\\(globalThis as any\\).__dbg} as any\\),/      error: loadError,/' src/offscreen/index.ts)",
+      "Bash(sed -i 's/^const BATCH_BUCKETS = \\\\[1, 4, 16\\\\];/const BATCH_BUCKETS = [1, 2, 4, 8, 16];/' src/offscreen/nsfwjs-classifier.ts)",
+      "Bash(python -c \"print\\(1\\)\")",
+      "Bash(node build.mjs)",
+      "Bash(NO_GPU=1 npm run test:e2e)",
+      "Bash(node \"C:/Users/boss_/AppData/Local/Temp/claude/e--GithubProjects-Toolize/5c343182-afd1-4c49-93bf-aaa7281c96e0/scratchpad/nogpu.mjs\")",
+      "Bash(grep -vE \"^  dist|^Done|^$|^>\")",
+      "Bash(NO_GPU=1 VERBOSE=1 npm run test:e2e)",
+      "Bash(node -e \"const r=require\\('./dist/rules/adult.json'\\);console.log\\('DNR rules:',r.length,'| domains:',r[0].condition.requestDomains.length\\)\")",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet --version)",
+      "Bash(where iscc *)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Inno Setup 6/**)",
+      "Bash(systeminfo)",
+      "Bash(gh auth *)",
+      "PowerShell(winget --version)",
+      "PowerShell(winget search --id Microsoft.DotNet.SDK.8 --exact --accept-source-agreements 2>&1)",
+      "PowerShell(git -C E:\\\\GithubProjects\\\\Toolize status --short 2>&1)",
+      "Bash(sed -i 's/\"bulldog-blocker-extension\"/\"toolize-extension\"/g' package-lock.json)",
+      "PowerShell(winget install --id Microsoft.DotNet.SDK.8 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
+      "PowerShell(winget install --id JRSoftware.InnoSetup --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
+      "PowerShell(winget install --id GitHub.cli --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)"
+    ]
+  }
+}

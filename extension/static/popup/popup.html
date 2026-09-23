@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Toolize</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Toolize</h1>
+    <label class="switch" title="Image protection">
+      <input type="checkbox" id="enabled" />
+      <span></span>
+    </label>
+  </header>
+
+  <section>
+    <h2>Sensitivity</h2>
+    <div class="seg" id="preset">
+      <button data-value="strict">Strict</button>
+      <button data-value="balanced">Balanced</button>
+      <button data-value="relaxed">Relaxed</button>
+    </div>
+    <p class="hint" id="preset-hint"></p>
+  </section>
+
+  <section>
+    <h2>Reveal mode</h2>
+    <div class="seg" id="mode">
+      <button data-value="safe">Safe reveal</button>
+      <button data-value="fast">Detect, then blur</button>
+    </div>
+    <p class="hint" id="mode-hint"></p>
+  </section>
+
+  <section class="row">
+    <div>
+      <h2>Adult sites</h2>
+      <p class="hint">Blocks known adult sites before they load.</p>
+    </div>
+    <label class="switch" title="Block adult sites">
+      <input type="checkbox" id="blockAdultSites" />
+      <span></span>
+    </label>
+  </section>
+
+  <section class="stats">
+    <h2>This tab</h2>
+    <dl>
+      <div><dt>Checked</dt><dd id="s-checked">–</dd></div>
+      <div><dt>Blurred</dt><dd id="s-blocked">–</dd></div>
+      <div><dt>Pending</dt><dd id="s-pending">–</dd></div>
+      <div><dt>Failed</dt><dd id="s-errors">–</dd></div>
+    </dl>
+  </section>
+
+  <footer id="engine">Classifier: starting…</footer>
+  <script src="popup.js"></script>
+</body>
+</html>

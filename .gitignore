@@ -1,0 +1,5 @@
+node_modules/
+extension/dist/
+extension/test/.artifacts/
+extension/test/corpus/**
+!extension/test/corpus/README.md

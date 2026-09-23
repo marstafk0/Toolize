@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Toolize — blur engine test page</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 24px; background: #f6f5f2; color: #222; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #666; margin: 28px 0 8px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+    img { display: block; outline: 1px solid #ccc; }
+    img[data-tz="blocked"] { outline: 3px solid #c0392b; }
+    img[data-tz="clean"] { outline: 3px solid #27ae60; }
+    img[data-tz="error"] { outline: 3px dashed #e67e22; }
+    iframe { width: 340px; height: 180px; border: 1px solid #ccc; }
+    #spacer { height: 3000px; }
+    .bg { width: 220px; height: 150px; background-size: cover; outline: 1px solid #ccc; }
+    .bg.small { width: 60px; height: 60px; }
+    .bg[data-tz-bg="blocked"] { outline: 3px solid #c0392b; }
+    video { display: block; width: 240px; outline: 1px solid #ccc; }
+    video[data-tz="blocked"] { outline: 3px solid #c0392b; }
+    video[data-tz="clean"] { outline: 3px solid #27ae60; }
+    code { background: #eee; padding: 1px 4px; }
+  </style>
+  <script src="harness.js"></script>
+</head>
+<body>
+  <h1>Blur engine test page</h1>
+  <p>Green outline = revealed clean, red = blocked, orange dashed = error (stays blurred). Dev build test hooks:
+    URLs containing <code>__tz_test_flag</code> / <code>__tz_test_borderline</code> get forced scores.</p>
+
+  <h2>Parser-inserted</h2>
+  <div class="row">
+    <img data-expect="clean" src="/img/320x240/alpha.png" />
+    <img data-expect="clean" src="/img/240x320/beta.png" />
+    <img data-expect="blocked" src="/img/320x240/x__tz_test_flag.png" />
+    <img data-expect="blocked" src="/img/400x400/x__tz_test_borderline.png" title="borderline, tileable -> refine -> blocked" />
+    <img data-expect="clean" src="/img/200x150/y__tz_test_borderline.png" title="borderline, too small to tile -> clean" />
+  </div>
+
+  <h2>Skip rules</h2>
+  <div class="row">
+    <img data-expect="skip" src="/img/40x40/icon.png" title="natural < 48" />
+    <img data-expect="skip" src="/img/200x200/attr-small.png" width="24" height="24" title="attrs < 48" />
+    <img data-expect="skip" src="/img/300x300/css-small.png" style="width:30px;height:30px" title="rendered < 48" />
+    <img data-expect="clean" src="/img/300x300/avatar.png" style="width:64px;height:64px;border-radius:50%" title="avatar >= 48 IS classified" />
+    <img data-expect="skip" src="/img/does-not-exist" alt="broken" title="broken" />
+  </div>
+
+  <h2>Sources: srcset / cross-origin / referer / data: / blob:</h2>
+  <div class="row">
+    <picture>
+      <source srcset="/img/360x240/pic-webp.png" media="(min-width: 1px)" />
+      <img data-expect="clean" src="/img/360x240/pic-fallback.png" />
+    </picture>
+    <img data-expect="clean" srcset="/img/300x200/srcset-1x.png 1x, /img/600x400/srcset-2x.png 2x" />
+    <img data-expect="clean" src="http://127.0.0.1:8788/img/300x200/cross-origin.png" title="cross-origin, no CORS" />
+    <img data-expect="clean" src="/img-referer/300x200/referer-same.png" title="referer-gated same-origin -> canvas fallback" />
+    <img data-expect="error" src="http://127.0.0.1:8788/img-referer/300x200/referer-cross.png" title="referer-gated + tainted -> error (fail safe)" />
+    <img data-expect="clean" crossorigin="anonymous" src="http://127.0.0.1:8788/img-referer/300x200/referer-cors.png?cors=1" title="referer-gated + CORS -> canvas fallback" />
+    <span id="dataurl-slot"></span>
+    <span id="blob-slot"></span>
+  </div>
+
+  <h2>Shadow DOM</h2>
+  <div class="row">
+    <x-open data-expect="clean"></x-open>
+    <x-closed data-expect="clean"></x-closed>
+    <x-lit data-expect="clean"></x-lit>
+    <x-open data-flag="1" data-expect="blocked"></x-open>
+    <x-nest></x-nest>
+    <div id="dsd"><template shadowrootmode="open"><img data-expect="clean" src="/img/220x160/dsd.png" /></template></div>
+  </div>
+
+  <h2>Iframes</h2>
+  <div class="row">
+    <iframe id="frame-same" src="frame.html"></iframe>
+    <iframe id="frame-srcdoc" srcdoc='<img data-expect="clean" src="http://localhost:8787/img/200x140/srcdoc.png"><img data-expect="blocked" src="http://localhost:8787/img/200x140/s__tz_test_flag.png">'></iframe>
+  </div>
+
+  <h2>Dynamic</h2>
+  <div class="row">
+    <img id="swap" data-expect="clean" src="/img/300x200/swap-a.png" />
+    <button onclick="__swap()">swap src → flagged</button>
+  </div>
+  <div class="row" id="feed"></div>
+  <button onclick="__appendBatch(10)">append 10 (infinite scroll)</button>
+
+  <h2>CSS backgrounds (detect-then-hide)</h2>
+  <div class="row">
+    <div class="bg" data-expect="clean" style="background-image:url(/img/400x300/bg-clean.png)"></div>
+    <div class="bg" data-expect="blocked" style="background-image:url(/img/400x300/bg__tz_test_flag.png)"></div>
+    <div class="bg small" data-expect="clean" style="background-image:url(/img/400x300/bg-small__tz_test_flag.png)"
+         title="under 100px: ignored"></div>
+    <div class="bg" data-expect="clean" style="background-image:linear-gradient(45deg,#8ab,#fc9)" title="gradient: ignored"></div>
+    <x-bg></x-bg>
+  </div>
+
+  <h2>Video</h2>
+  <div class="row" id="videos"></div>
+
+  <div id="spacer"></div>
+  <h2>Lazy (below the fold)</h2>
+  <div class="row">
+    <img id="lazy1" data-expect="clean" loading="lazy" src="/img/300x200/lazy-1.png" />
+    <img id="lazy2" data-expect="blocked" loading="lazy" src="/img/300x200/lazy__tz_test_flag.png" />
+  </div>
+</body>
+</html>

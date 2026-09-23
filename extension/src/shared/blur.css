@@ -1,0 +1,31 @@
+/*
+ * Safe-reveal stylesheet. Injected by the manifest at document_start (before first
+ * paint) and adopted into every shadow root by the MAIN-world hook.
+ *
+ * Every <img> is blurred UNLESS the engine has explicitly stamped it with a "show"
+ * state. No attribute = not yet seen = blurred. If the engine crashes, the extension
+ * context dies, or classification errors, images stay blurred: fail safe.
+ *
+ * data-tz states:
+ *   (absent) | pending | error | blocked  -> blurred
+ *   clean | skip | fast | off              -> shown
+ *
+ * Grayscale + heavy blur together: blur alone at low radii leaves silhouettes.
+ * clip-path keeps the blur from bleeding outside the element box.
+ */
+img:not([data-tz="clean"]):not([data-tz="skip"]):not([data-tz="fast"]):not([data-tz="off"]),
+video:not([data-tz="clean"]):not([data-tz="skip"]):not([data-tz="fast"]):not([data-tz="off"]) {
+  filter: blur(40px) grayscale(1) !important;
+  clip-path: inset(0) !important;
+}
+
+/*
+ * CSS background images are detect-then-hide, not safe-reveal: blurring every
+ * background before classification would gut the layout of every site. Flagged ones
+ * have the image removed rather than blurred — a filter would blur the element's text
+ * and children too, and a positioned overlay can break page layout.
+ */
+[data-tz-bg="blocked"] {
+  background-image: none !important;
+  background-color: #8a8a8a !important;
+}

@@ -62,5 +62,8 @@ section { padding: 10px 0; border-top: 1px solid var(--line); }
 .stats dt { font-size: 11px; color: var(--muted); }
 .stats dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 600; }
 
+#lock-note:empty { display: none; }
+#lock-note { color: #b03a2e; margin: 8px 0 0; }
+
 footer { border-top: 1px solid var(--line); padding-top: 8px; font-size: 11px; color: var(--muted); }
 footer.bad { color: #c0392b; }

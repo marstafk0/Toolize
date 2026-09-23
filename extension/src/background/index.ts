@@ -1,12 +1,15 @@
 import type {
   ClassifyRequest,
   ClassifyResponse,
+  CompanionState,
   EngineInfo,
   GetEngineInfoRequest,
   Message,
+  SetSettingsResult,
   TabStats,
 } from '../shared/messages';
-import { DEFAULT_SETTINGS, type Settings } from '../shared/settings';
+import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../shared/settings';
+import { hello, isConnected, requestSettings, startHeartbeat } from './companion';
 
 /**
  * Service worker: routes classify requests to the offscreen document (creating it on
@@ -127,6 +130,21 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
       readStats().then((s) => sendResponse(sumStats(s[msg.tabId])));
       return true;
 
+    case 'setSettings':
+      // The desktop app decides when it's installed; otherwise we apply it locally.
+      loadSettings()
+        .then((current) => requestSettings(msg.patch as Partial<Settings>, current))
+        .then(
+          (settings) => sendResponse({ ok: true, settings, viaCompanion: isConnected() } satisfies SetSettingsResult),
+          (e: Error & { code?: string }) =>
+            sendResponse({ ok: false, error: e.message, code: e.code } satisfies SetSettingsResult),
+        );
+      return true;
+
+    case 'companion':
+      sendResponse({ installed: isConnected() } satisfies CompanionState);
+      return false;
+
     case 'engineInfo':
       sendToOffscreen<EngineInfo>(msg).then(sendResponse, (e) =>
         sendResponse({
@@ -182,9 +200,34 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
+// ---------------------------------------------------------------- desktop app link
+
+/** Totals across every tab, for the app's status display. */
+async function companionStats(): Promise<{ blocked: number; checked: number }> {
+  const store = await readStats();
+  const totals = Object.values(store).map((frames) => sumStats(frames));
+  return {
+    blocked: totals.reduce((n, s) => n + s.blocked, 0),
+    checked: totals.reduce((n, s) => n + s.checked, 0),
+  };
+}
+
+function connectCompanion(): void {
+  void hello().then((settings) => {
+    if (settings) console.info('[toolize] settings adopted from the desktop app');
+  });
+  startHeartbeat(companionStats);
+}
+
 // Spin the model up eagerly so the first page load doesn't pay the load cost.
 chrome.runtime.onStartup.addListener(() => {
   void ensureOffscreen();
   void syncRulesets();
+  connectCompanion();
 });
-chrome.runtime.onInstalled.addListener(() => void ensureOffscreen());
+chrome.runtime.onInstalled.addListener(() => {
+  void ensureOffscreen();
+  connectCompanion();
+});
+// The service worker also wakes on plain events; make sure the link is re-established.
+connectCompanion();

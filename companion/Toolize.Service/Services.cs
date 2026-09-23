@@ -1,0 +1,167 @@
+using System.Diagnostics;
+using System.Reflection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
+using Toolize.Core;
+
+namespace Toolize.Service;
+
+public static class AppInfo
+{
+    public static string Version =>
+        Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.0.0";
+
+    /// <summary>Public half of the release signing key; the private half never leaves the dev machine.</summary>
+    public const string ReleasePublicKey = ReleaseKey.PublicKeyBase64;
+    public const string Repo = ReleaseKey.Repo;
+}
+
+/// <summary>
+/// Lock state. Phase 3 has no unlock provider, so nothing is enrolled and every change
+/// is allowed — but the gate is real and every weakening already passes through it.
+/// Phase 4 replaces this with the USB providers.
+/// </summary>
+public sealed class LockService
+{
+    public LockState State { get; private set; } = new() { Enrolled = false, KeyPresent = false };
+
+    public void Update(LockState state) => State = state;
+}
+
+/// <summary>Tracks the browser extension's heartbeat so the GUI can show whether it's alive.</summary>
+public sealed class ExtensionTracker
+{
+    private readonly object _gate = new();
+    private ExtensionState _state = new();
+
+    /// <summary>Extension counts as connected only if it checked in recently.</summary>
+    private static readonly TimeSpan Stale = TimeSpan.FromSeconds(90);
+
+    public ExtensionState State
+    {
+        get
+        {
+            lock (_gate)
+            {
+                var live = _state.LastSeen is { } seen && DateTimeOffset.UtcNow - seen < Stale;
+                return _state with { Connected = live };
+            }
+        }
+    }
+
+    public void Hello(string? version)
+    {
+        lock (_gate) _state = _state with { Version = version, LastSeen = DateTimeOffset.UtcNow };
+    }
+
+    public void Heartbeat(ExtensionHeartbeatArgs args)
+    {
+        lock (_gate)
+            _state = _state with
+            {
+                Version = args.Version,
+                LastSeen = DateTimeOffset.UtcNow,
+                Blocked = args.Blocked,
+                Checked = args.Checked,
+            };
+    }
+
+    /// <summary>Settings changed elsewhere; the extension picks them up on its next heartbeat.</summary>
+    public void SettingsChanged() { }
+}
+
+public sealed record ApplyResult(bool Ok, string Message);
+
+/// <summary>Checks for, downloads and applies updates. See <see cref="Updater"/> for the trust model.</summary>
+public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
+{
+    private readonly Updater _updater = new(AppInfo.Repo, AppInfo.ReleasePublicKey);
+
+    public UpdateInfo? Last { get; private set; }
+    private UpdateManifest? _manifest;
+
+    public async Task<UpdateInfo> CheckAsync(CancellationToken ct)
+    {
+        var channel = store.Channel ?? "stable";
+        try
+        {
+            _manifest = await _updater.FetchManifestAsync(channel, ct);
+            if (_manifest is null)
+            {
+                return Last = new UpdateInfo { Version = AppInfo.Version, Available = false, Notes = "no release published yet" };
+            }
+            var available = Updater.IsNewer(_manifest.Version, AppInfo.Version);
+            log.LogInformation("update check: {Current} -> {Latest} on {Channel} ({Available})",
+                AppInfo.Version, _manifest.Version, channel, available ? "update available" : "up to date");
+            return Last = new UpdateInfo
+            {
+                Version = _manifest.Version,
+                Available = available,
+                Notes = _manifest.Notes,
+                InstallerUrl = _manifest.InstallerUrl,
+                Sha256 = _manifest.InstallerSha256,
+            };
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "update check failed");
+            store.Note($"update check failed: {ex.Message}");
+            return Last = new UpdateInfo { Version = AppInfo.Version, Available = false, Notes = ex.Message };
+        }
+    }
+
+    public async Task<ApplyResult> ApplyAsync(CancellationToken ct)
+    {
+        if (_manifest is null) await CheckAsync(ct);
+        if (_manifest is null) return new ApplyResult(false, "no release to install");
+        if (!Updater.IsNewer(_manifest.Version, AppInfo.Version)) return new ApplyResult(false, "already up to date");
+
+        var installer = await _updater.DownloadInstallerAsync(_manifest, ct);
+        store.Note($"installing update {AppInfo.Version} -> {_manifest.Version}");
+
+        // The installer stops the service, swaps the files and starts it again, so this
+        // process is replaced mid-flight — hence no wait, and no work after this point.
+        Process.Start(new ProcessStartInfo(installer)
+        {
+            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+            UseShellExecute = true,
+        });
+        return new ApplyResult(true, $"installing {_manifest.Version}");
+    }
+}
+
+/// <summary>
+/// Reports what is and isn't in place. In phase 3 this is mostly informational; from
+/// phase 5 it becomes the checklist that says whether protection is actually enforced.
+/// </summary>
+public sealed class DoctorService(StateStore store, ExtensionTracker extension)
+{
+    public Task<IReadOnlyList<Check>> RunAsync(CancellationToken ct)
+    {
+        var checks = new List<Check>
+        {
+            new("Service", true, $"running, version {AppInfo.Version}"),
+            new("State directory", Directory.Exists(store.Directory), store.Directory),
+            new("Extension", extension.State.Connected,
+                extension.State.Connected
+                    ? $"connected, version {extension.State.Version}"
+                    : "not connected — install it from the browser, or check the native messaging host",
+                Fix: "Open the browser and confirm Toolize is enabled"),
+        };
+
+        foreach (var (name, key) in new[]
+                 {
+                     ("Chrome", @"SOFTWARE\Google\Chrome\NativeMessagingHosts\com.toolize.host"),
+                     ("Edge", @"SOFTWARE\Microsoft\Edge\NativeMessagingHosts\com.toolize.host"),
+                     ("Brave", @"SOFTWARE\BraveSoftware\Brave\NativeMessagingHosts\com.toolize.host"),
+                 })
+        {
+            var registered = OperatingSystem.IsWindows() && Registry.LocalMachine.OpenSubKey(key) is not null;
+            checks.Add(new Check($"{name} messaging host", registered,
+                registered ? "registered" : "not registered (that browser simply won't talk to the app)"));
+        }
+
+        checks.Add(new Check("Enforcement", false, "not enabled in this version — nothing is locked down yet"));
+        return Task.FromResult<IReadOnlyList<Check>>(checks);
+    }
+}

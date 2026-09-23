@@ -37,7 +37,28 @@
       "Bash(sed -i 's/\"bulldog-blocker-extension\"/\"toolize-extension\"/g' package-lock.json)",
       "PowerShell(winget install --id Microsoft.DotNet.SDK.8 --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
       "PowerShell(winget install --id JRSoftware.InnoSetup --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
-      "PowerShell(winget install --id GitHub.cli --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)"
+      "PowerShell(winget install --id GitHub.cli --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity 2>&1)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git ls-remote *)",
+      "Bash(git push *)",
+      "Bash(sed -i \"s/import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';/import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';/\" build.mjs)",
+      "Bash(node -e \"const m=require\\('./dist/manifest.json'\\);console.log\\('name',m.name,'version',m.version,'key?',!!m.key\\)\")",
+      "Bash(node extension/build.mjs)",
+      "Bash(node tools/crx.mjs extension/dist __TRACKED_VAR__/toolize-test.crx)",
+      "Bash(node tools/crx.mjs extension/dist \"C:/Users/boss_/AppData/Local/Temp/toolize-test.crx\")",
+      "Read(//c/Users/boss_/AppData/Local/Temp/**)",
+      "Bash(xxd)",
+      "PowerShell($crx = \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\toolize-test.crx\"; $b = [IO.File]::ReadAllBytes\\($crx\\); $headerLen = [BitConverter]::ToUInt32\\($b, 8\\); $zipStart = 12 + $headerLen; [IO.File]::WriteAllBytes\\(\"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\toolize-test.zip\", $b[$zipStart..\\($b.Length-1\\)]\\); Remove-Item -Recurse -Force \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\crxcheck\" -ErrorAction SilentlyContinue; Expand-Archive -Path \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\toolize-test.zip\" -DestinationPath \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\crxcheck\" -Force; \\(Get-ChildItem -Recurse \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\crxcheck\" -File | Measure-Object\\).Count; Get-Content \"C:\\\\Users\\\\boss_\\\\AppData\\\\Local\\\\Temp\\\\crxcheck\\\\manifest.json\" -Raw | ConvertFrom-Json | Select-Object name, version | Format-List)",
+      "PowerShell($p = \\(Get-ItemProperty \"HKLM:\\\\SOFTWARE\\\\WOW6432Node\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\Inno Setup 6_is1\" -ErrorAction SilentlyContinue\\).InstallLocation; if \\(-not $p\\) { $p = \\(Get-ItemProperty \"HKCU:\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Uninstall\\\\Inno Setup 6_is1\" -ErrorAction SilentlyContinue\\).InstallLocation }; \"install location: $p\"; if \\($p\\) { Get-ChildItem $p -Filter \"ISCC.exe\" | Select-Object FullName })",
+      "Bash(git credential *)",
+      "Bash(node tools/stamp.mjs)",
+      "PowerShell($dir = \"C:\\\\ProgramData\\\\Toolize-dev\"; $acl = Get-Acl $dir; $acl.SetAccessRuleProtection\\($false, $true\\); Set-Acl $dir $acl; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue; if \\(Test-Path $dir\\) { \"still there: \" + \\(\\(Get-Acl $dir\\).Access | ForEach-Object { $_.IdentityReference }\\) -join \",\" } else { \"cleared\" })",
+      "Bash(sed -i \"/void randomUUID;/d; s/import { createHash, randomUUID } from 'node:crypto';/import { createHash } from 'node:crypto';/\" tools/release.mjs)",
+      "Bash(node tools/release.mjs --channel dev --local)"
+    ],
+    "additionalDirectories": [
+      "C:\\ProgramData\\Toolize-dev"
     ]
   }
 }

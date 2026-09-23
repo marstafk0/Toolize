@@ -3,7 +3,7 @@
 //   node build.mjs --dev     + test hooks (__DEV__) and the corpus regression page
 //   node build.mjs --watch   rebuild on change (implies --dev)
 import * as esbuild from 'esbuild';
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -21,6 +21,22 @@ mkdirSync(out, { recursive: true });
 cpSync(join(root, 'static'), out, { recursive: true, filter: (src) => dev || !src.includes('corpus') });
 mkdirSync(join(out, 'content'), { recursive: true });
 cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
+
+// ---- manifest: stamp the repo-wide version, and pin the extension ID by embedding the
+// packing key's public half. Without this an unpacked dev build gets a random ID, which
+// breaks the native messaging allowlist and the update URL.
+{
+  const manifestPath = join(out, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.version = JSON.parse(readFileSync(join(root, '../version.json'), 'utf8')).version;
+  try {
+    const { crxPublicKeyBase64 } = await import('../tools/keys.mjs');
+    manifest.key = crxPublicKeyBase64();
+  } catch {
+    console.warn('no signing key yet (run `node tools/keys.mjs`) — building with a random extension ID');
+  }
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
 
 // ---- model: nsfwjs ships its weights as base64 inside UMD JS modules (and decodes
 // them with Node's Buffer). Unpack once into a normal model.json + .bin so TF.js loads

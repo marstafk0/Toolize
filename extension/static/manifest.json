@@ -4,8 +4,17 @@
   "version": "0.1.0",
   "description": "Blurs explicit and immodest images inside the pages you visit. 100% local — nothing leaves your machine.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "offscreen", "scripting", "declarativeNetRequest"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "offscreen",
+    "scripting",
+    "declarativeNetRequest",
+    "nativeMessaging",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
@@ -15,8 +24,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/main-world.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/main-world.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,
@@ -24,9 +37,15 @@
       "world": "MAIN"
     },
     {
-      "matches": ["<all_urls>"],
-      "css": ["content/blur.css"],
-      "js": ["content/content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "css": [
+        "content/blur.css"
+      ],
+      "js": [
+        "content/content.js"
+      ],
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,
@@ -34,12 +53,35 @@
     }
   ],
   "declarative_net_request": {
-    "rule_resources": [{ "id": "adult", "enabled": true, "path": "rules/adult.json" }]
+    "rule_resources": [
+      {
+        "id": "adult",
+        "enabled": true,
+        "path": "rules/adult.json"
+      }
+    ]
   },
-  "web_accessible_resources": [{ "resources": ["blocked/blocked.html"], "matches": ["<all_urls>"] }],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "blocked/blocked.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
   },
-  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" }
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
 }

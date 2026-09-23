@@ -67,4 +67,30 @@ export interface GetEngineInfoRequest {
   kind: 'engineInfo';
 }
 
-export type Message = ClassifyRequest | StatsReport | GetTabStatsRequest | GetEngineInfoRequest;
+/** Popup → background: change settings, routed through the desktop app when installed. */
+export interface SetSettingsRequest {
+  target: 'background';
+  kind: 'setSettings';
+  patch: Record<string, unknown>;
+}
+
+export type SetSettingsResult =
+  | { ok: true; settings: unknown; viaCompanion: boolean }
+  | { ok: false; error: string; code?: string };
+
+export interface GetCompanionRequest {
+  target: 'background';
+  kind: 'companion';
+}
+
+export interface CompanionState {
+  installed: boolean;
+}
+
+export type Message =
+  | ClassifyRequest
+  | StatsReport
+  | GetTabStatsRequest
+  | GetEngineInfoRequest
+  | SetSettingsRequest
+  | GetCompanionRequest;

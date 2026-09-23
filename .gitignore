@@ -3,3 +3,6 @@ extension/dist/
 extension/test/.artifacts/
 extension/test/corpus/**
 !extension/test/corpus/README.md
+out/
+companion/**/bin/
+companion/**/obj/

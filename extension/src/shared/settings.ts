@@ -28,10 +28,18 @@ export async function loadSettings(): Promise<Settings> {
   return { ...DEFAULT_SETTINGS, ...(got[KEY] as Partial<Settings> | undefined) };
 }
 
-export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
-  const next = { ...(await loadSettings()), ...patch };
+/**
+ * Writes the local cache. Callers that can reach the desktop app should go through it
+ * instead (see background/companion.ts) — the app is the authority, this is the copy.
+ */
+export async function saveSettingsLocal(settings: Settings): Promise<Settings> {
+  const next = { ...DEFAULT_SETTINGS, ...settings };
   await chrome.storage.local.set({ [KEY]: next });
   return next;
+}
+
+export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
+  return saveSettingsLocal({ ...(await loadSettings()), ...patch });
 }
 
 export function onSettingsChanged(cb: (s: Settings) => void): void {

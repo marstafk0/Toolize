@@ -60,7 +60,9 @@
       "WebSearch",
       "WebFetch(domain:chromeenterprise.google)",
       "Bash(sed -i 's|^function zipDirectory\\(dir\\) {|export function zipDirectory\\(dir\\) {|' tools/crx.mjs)",
-      "Bash(node tools/webstore.mjs)"
+      "Bash(node tools/webstore.mjs)",
+      "Bash(sed -i 's|^Anyone with admin rights on a machine can defeat software running on it.|Anyone with admin rights on a machine can defeat software running on it. Nothing is enforced yet either: the extension can still be disabled in the browser, which phase 5 addresses.|' README.md)",
+      "Bash(RELEASE_NOTES=\"USB unlock: enroll a key, and weakening protection now needs it plugged in. Copy-evident key rotation, one-time recovery code, and a setup wizard.\" node tools/release.mjs --channel stable 0.4.0)"
     ],
     "additionalDirectories": [
       "C:\\ProgramData\\Toolize-dev"

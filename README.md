@@ -2,9 +2,9 @@
 
 An accountability and focus tool for Windows. It is built from three parts:
 
-1. **Chrome/Edge extension** that blurs explicit or immodest images *inside* the pages you visit, one image at a time.
-2. **Windows companion app** (planned) that makes the extension hard to tamper with.
-3. **Physical unlock key** (planned). Protection can only be weakened while a YubiKey or keyfile USB drive is plugged in.
+1. **Chrome/Edge/Brave extension** that blurs explicit or immodest images and video *inside* the pages you visit, one element at a time, and blocks known adult sites before they load.
+2. **Windows companion app** — a background service that holds the settings, with a small window and a command-line tool as its front ends. It updates itself from a signed release.
+3. **Physical unlock key.** Weakening protection requires a dedicated USB key to be plugged in; removing it re-locks immediately. A FIDO2 tier, where the secret can't be copied at all, comes next.
 
 ## Privacy
 
@@ -14,7 +14,7 @@ The extension downloads each image a second time from inside its own sandbox so 
 
 ## Honest limits
 
-Anyone with admin rights on a machine can defeat software running on it. The goal is to turn "3 clicks" into "deliberate technical effort", not to be unbeatable. The physical key only helps if someone else keeps it, such as an accountability partner, or if it lives somewhere deliberately inconvenient. The software can't enforce that.
+Anyone with admin rights on a machine can defeat software running on it. Nothing is enforced yet either: the extension can still be disabled in the browser, which phase 5 addresses. The goal is to turn "3 clicks" into "deliberate technical effort", not to be unbeatable. The physical key only helps if someone else keeps it, such as an accountability partner, or if it lives somewhere deliberately inconvenient. The software can't enforce that.
 
 ## Status
 

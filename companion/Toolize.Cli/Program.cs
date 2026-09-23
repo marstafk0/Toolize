@@ -4,7 +4,9 @@ using Toolize.Core;
 // Toolize CLI — a thin client over the service's named pipe. Same authority as the GUI:
 // none. The service decides what is allowed.
 //
-//   toolize status|settings|set <key> <value>|check-update|update|doctor|notes
+//   toolize status|settings|set <key> <value>|channel <name>
+//   toolize drives|enroll-key <drive> [name]|keys|revoke-key <id>|recover <code>
+//   toolize check-update|update|doctor|notes
 //   --dev   talk to a dev service started with `--console`
 
 var dev = args.Contains("--dev");
@@ -35,6 +37,65 @@ try
             var info = (await Ask(Verbs.SetChannel, new SetChannelArgs(name))).DataAs<UpdateInfo>();
             Console.WriteLine($"channel set to {name}" + (info?.Available == true ? $" — {info.Version} available" : ""));
             break;
+        }
+
+        case "drives":
+        {
+            var drives = (await Ask(Verbs.Drives)).DataAs<List<DriveOption>>() ?? [];
+            if (drives.Count == 0) { Console.WriteLine("no removable drives are plugged in"); break; }
+            foreach (var d in drives)
+                Console.WriteLine($"  {d.Letter,-4} {d.Label,-20} {d.Bytes / 1_000_000_000.0:F1} GB{(d.HasKey ? "  [has a Toolize key]" : "")}");
+            break;
+        }
+
+        case "enroll-key":
+        {
+            var drive = rest.Skip(1).FirstOrDefault();
+            if (drive is null) { Console.Error.WriteLine("usage: toolize enroll-key <drive letter> [name]"); return 2; }
+            var name = string.Join(' ', rest.Skip(2)).Trim();
+            var response = await client.SendAsync(Verbs.EnrollKey, new EnrollKeyArgs(drive, name));
+            if (!response.Ok) { Console.Error.WriteLine(response.Error); return 4; }
+            var enrolled = response.Data!.Value;
+            Console.WriteLine($"enrolled {drive} as \"{enrolled.GetProperty("key").GetProperty("name").GetString()}\"");
+            if (enrolled.TryGetProperty("recovery", out var code) && code.ValueKind == JsonValueKind.String)
+            {
+                Console.WriteLine();
+                Console.WriteLine("  RECOVERY CODE (shown once — write it down and give it to your partner):");
+                Console.WriteLine($"      {code.GetString()}");
+                Console.WriteLine("  Without it, losing every key means reinstalling from scratch.");
+            }
+            break;
+        }
+
+        case "keys":
+        {
+            var s2 = (await Ask(Verbs.Status)).DataAs<StatusReport>()!;
+            if (s2.Keys.Count == 0) { Console.WriteLine("no keys enrolled"); break; }
+            foreach (var k in s2.Keys)
+                Console.WriteLine($"  {k.Id}  {k.Name,-20} {k.Tier,-6} enrolled {k.EnrolledAt.LocalDateTime:yyyy-MM-dd}" +
+                                  $"{(k.LastSeen is { } seen ? $", last seen {seen.LocalDateTime:yyyy-MM-dd HH:mm}" : "")}");
+            Console.WriteLine(s2.HasRecoveryCode ? "  recovery code: issued and unused" : "  recovery code: NONE");
+            break;
+        }
+
+        case "revoke-key":
+        {
+            var id = rest.Skip(1).FirstOrDefault();
+            if (id is null) { Console.Error.WriteLine("usage: toolize revoke-key <id>"); return 2; }
+            var response = await client.SendAsync(Verbs.RevokeKey, new RevokeKeyArgs(id));
+            Console.WriteLine(response.Ok ? $"revoked {id}" : response.Error);
+            return response.Ok ? 0 : 4;
+        }
+
+        case "recover":
+        {
+            var code = rest.Skip(1).FirstOrDefault();
+            if (code is null) { Console.Error.WriteLine("usage: toolize recover <code>"); return 2; }
+            var response = await client.SendAsync(Verbs.Recover, new RecoverArgs(code));
+            Console.WriteLine(response.Ok
+                ? "recovered — all keys cleared, protection stays on. Enroll a new key now."
+                : response.Error);
+            return response.Ok ? 0 : 4;
         }
 
         case "check-update":
@@ -69,7 +130,7 @@ try
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, check-update, update, doctor, notes");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes");
             return 2;
     }
     return 0;

@@ -86,6 +86,13 @@ public partial class MainWindow : Window
                     ? $"Unlocked — {s.Lock.KeyName} is plugged in. Changes that weaken protection are allowed."
                     : "Locked. Plug in your key to change anything that weakens protection."
                 : "No key enrolled, so every setting can be changed freely.";
+            LockText.Foreground = (Brush)FindResource(s.Lock.Enrolled && !s.Lock.KeyPresent ? "Accent" : "Ink");
+            EnrollButton.Content = s.Keys.Count == 0 ? "Set up a USB key" : "Add another key";
+            RevokeButton.Visibility = s.Keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            LockHint.Text = s.Keys.Count == 0
+                ? "A dedicated USB key gates every change that weakens protection. Removing it re-locks immediately."
+                : string.Join(", ", s.Keys.Select(k => k.Name)) +
+                  (s.HasRecoveryCode ? " · recovery code issued" : " · NO recovery code — losing every key means reinstalling");
 
             if (s.Update is { Available: true } update)
             {
@@ -147,6 +154,27 @@ public partial class MainWindow : Window
         {
             await RefreshAsync(); // always re-render from the service, never from local state
         }
+    }
+
+    private async void OnEnrollClicked(object sender, RoutedEventArgs e)
+    {
+        _timer.Stop(); // the wizard drives its own polling
+        new EnrollWindow(_client) { Owner = this }.ShowDialog();
+        await RefreshAsync();
+        _timer.Start();
+    }
+
+    private async void OnRevokeClicked(object sender, RoutedEventArgs e)
+    {
+        var key = _status?.Keys.FirstOrDefault();
+        if (key is null) return;
+        if (MessageBox.Show(this,
+                $"Remove \"{key.Name}\"? If it is your only key, nothing will be gated any more.",
+                "Remove key", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+
+        var response = await _client.SendAsync(Verbs.RevokeKey, new RevokeKeyArgs(key.Id));
+        if (!response.Ok) MessageBox.Show(this, response.Error, "Locked", MessageBoxButton.OK, MessageBoxImage.Warning);
+        await RefreshAsync();
     }
 
     private async void OnUpdateClicked(object sender, RoutedEventArgs e)

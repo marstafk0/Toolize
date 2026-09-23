@@ -12,6 +12,11 @@
 #ifndef ExtId
   #define ExtId "unknown"
 #endif
+; The Web Store assigns its own id. When it's known, both are allowed to talk to the
+; service, so a store-installed extension and a locally loaded dev build both work.
+#ifndef StoreExtId
+  #define StoreExtId ""
+#endif
 #ifndef UpdateXmlUrl
   #define UpdateXmlUrl ""
 #endif
@@ -95,6 +100,13 @@ end;
 
 // The native messaging manifest has to carry an absolute path and the extension ID, so
 // it is written at install time rather than shipped as a static file.
+function AllowedOrigins(): string;
+begin
+  Result := '"chrome-extension://{#ExtId}/"';
+  if '{#StoreExtId}' <> '' then
+    Result := Result + ', "chrome-extension://{#StoreExtId}/"';
+end;
+
 procedure WriteNativeHostManifest();
 var
   Json: string;
@@ -105,7 +117,7 @@ begin
     '  "description": "Toolize native messaging host",' + #13#10 +
     '  "path": "' + StringChangeEx2(ExpandConstant('{app}\Toolize.NativeHost.exe'), '\', '\\', True) + '",' + #13#10 +
     '  "type": "stdio",' + #13#10 +
-    '  "allowed_origins": ["chrome-extension://{#ExtId}/"]' + #13#10 +
+    '  "allowed_origins": [' + AllowedOrigins + ']' + #13#10 +
     '}';
   SaveStringToFile(ExpandConstant('{app}\com.toolize.host.json'), Json, False);
 end;

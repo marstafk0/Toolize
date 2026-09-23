@@ -17,9 +17,8 @@ public static class AppInfo
 }
 
 /// <summary>
-/// Lock state. Phase 3 has no unlock provider, so nothing is enrolled and every change
-/// is allowed — but the gate is real and every weakening already passes through it.
-/// Phase 4 replaces this with the USB providers.
+/// The current lock state, published by <see cref="UnlockService"/> as it polls. Read it
+/// for display; for a decision, call UnlockService.Refresh() so the answer is current.
 /// </summary>
 public sealed class LockService
 {
@@ -134,7 +133,7 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
 /// Reports what is and isn't in place. In phase 3 this is mostly informational; from
 /// phase 5 it becomes the checklist that says whether protection is actually enforced.
 /// </summary>
-public sealed class DoctorService(StateStore store, ExtensionTracker extension)
+public sealed class DoctorService(StateStore store, ExtensionTracker extension, LockService locks)
 {
     public Task<IReadOnlyList<Check>> RunAsync(CancellationToken ct)
     {
@@ -161,6 +160,14 @@ public sealed class DoctorService(StateStore store, ExtensionTracker extension)
                 registered ? "registered" : "not registered (that browser simply won't talk to the app)"));
         }
 
+        var lockState = locks.State;
+        checks.Add(new Check("Unlock key", lockState.Enrolled,
+            lockState.Enrolled
+                ? lockState.KeyPresent ? $"{lockState.KeyName} is plugged in — changes allowed" : "locked: no key present"
+                : "no key enrolled, so nothing is gated",
+            Fix: lockState.Enrolled ? null : "Set up a USB key in the Toolize app"));
+        if (lockState.Enrolled && !store.HasRecoveryCode)
+            checks.Add(new Check("Recovery code", false, "no unused recovery code — losing every key would mean reinstalling"));
         checks.Add(new Check("Enforcement", false, "not enabled in this version — nothing is locked down yet"));
         return Task.FromResult<IReadOnlyList<Check>>(checks);
     }

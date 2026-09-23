@@ -22,10 +22,14 @@ Anyone with admin rights on a machine can defeat software running on it. The goa
 |---|---|---|
 | 1 | Blur engine MVP: images, safe-reveal, presets | **done** |
 | 2 | Video, CSS backgrounds, adult-site blocklist | **done** |
-| 3 | Feed toggles (YouTube/X/Reddit/…) + sites catalog | — |
-| 4 | Companion app: heartbeat, policy install, watchdog | — |
-| 5 | Physical key unlock (keyfile, then YubiKey HMAC) | — |
-| 6 | Installer + hardening | — |
+| 3 | Companion app: service, GUI, CLI, signed self-update | **done** |
+| 4 | USB unlock: flash-drive tier, recovery code | **done** |
+| 5 | Enforcement: force-install, policy, watchdog | — |
+| 6 | Feed toggles (YouTube/X/Reddit/…) + sites catalog | — |
+| 7 | Beyond the browser: DNS filtering, screen classifier | — |
+
+FIDO2/YubiKey (the uncopyable unlock tier) slots in behind the same interface as the
+flash-drive tier; see *The unlock key* below for what each tier actually guarantees.
 
 ## Extension: build & load
 
@@ -55,6 +59,35 @@ To load it, open `chrome://extensions`, turn on Developer mode, click **Load unp
   | balanced | 0.55 | 0.55 | 0.75 |
   | relaxed | 0.75 | 0.75 | 0.90 |
 
+## The unlock key
+
+Protection can be *strengthened* at any time. Weakening it — turning it off, lowering
+the sensitivity, switching off site blocking, removing a key, or installing an update —
+requires an enrolled USB key to be plugged in. Pull the key out and the next check
+re-locks; presence is re-verified at the moment each change commits, so a key removed a
+second earlier authorises nothing.
+
+Set one up in the app: it writes a key file to a stick you choose, then asks you to
+unplug and replug it so you can see the lock follow the key. You get a recovery code,
+shown once — it clears all keys and works exactly once, and it belongs with your
+partner, not with you.
+
+**What the flash-drive tier does and doesn't give you.** The file can be copied and a
+drive serial can be spoofed, so this is friction, not proof of possession. What it does
+give you is evidence: the secret rotates every minute the key is plugged in, so if a
+copy and the original are both ever used, Toolize spots the stale one and records
+`COPY DETECTED`. A copy used while the original stays in a drawer is *not* detected
+until the original comes back. If that isn't enough, the FIDO2 tier — where the secret
+never leaves the device — is the answer, and it plugs into the same interface.
+
+```sh
+toolize drives                  # removable drives that could hold a key
+toolize enroll-key D: "Partner's key"
+toolize keys                    # what's enrolled, and whether a recovery code exists
+toolize revoke-key <id>         # needs a key present
+toolize recover <code>          # last resort: clears every key, one use only
+```
+
 ## Testing
 
 ```sh
@@ -62,6 +95,7 @@ npm run typecheck
 npm run test:e2e             # headless end-to-end run in Playwright's Chromium
 NO_GPU=1 npm run test:e2e    # same, forcing the GPU-less WASM path
 npm run corpus               # false-positive / false-negative rates per preset on your image corpus
+dotnet test companion/Toolize.Tests   # lock rules: rotation, clone detection, recovery, weakening
 npm run serve-test           # manual testing: http://localhost:8787/pages/index.html (load a --dev build)
 ```
 

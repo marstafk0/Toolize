@@ -163,6 +163,11 @@ Be precise about this, because "uncopyable USB" is a real distinction:
   stable ID derived from the packing key). Chrome only polls every few hours, so after
   a companion update the service tells the extension over Native Messaging to call
   `chrome.runtime.requestUpdateCheck()`.
+- **Extension delivery: Chrome Web Store, unlisted** (decided). Chrome refuses off-store
+  policy installs on unmanaged machines, so the store is what makes both installation
+  and the phase 5 forcelist possible without enrolling the device. `tools/webstore.mjs`
+  builds the upload zip and strips the `key` field; the store id then goes in
+  `version.json` so the native messaging host allows both ids.
 - **Release host: GitHub Releases** (decided). `tools/release.mjs` creates a tagged
   release and uploads `update.json`, `update.xml`, the `.crx` and the installer. The
   repo must be public, or the assets need a token — and a token baked into an installed
@@ -235,17 +240,16 @@ Toolize/                      # repo root (the product is "Toolize")
 
 1. **Blur engine MVP** — images, safe-reveal, presets, offscreen classifier. ✅ done
 2. **Video + CSS backgrounds + adult-site blocklist.** ✅ done
-3. **Companion v1 (installable, updatable).** Service + GUI + CLI over the named pipe,
+3. ✅ **Companion v1 (installable, updatable).** Service + GUI + CLI over the named pipe,
    Native Messaging heartbeat, settings sync with the extension, Inno Setup installer,
    and self-update from GitHub Releases with a signed manifest. **Deliberately no
    enforcement in this phase**: no policy keys, no forcelist, no watchdog, no incognito
    lockout. The extension installs the ordinary way. The point is that both machines
    install once and update by button from then on, and that a broken build can't lock
    anyone out of their own browser.
-4. **USB unlock.** Tier A flash drive first (decided): enrollment wizard, rotating
-   secret, copy evidence, lock/unlock state machine — all provable with hardware
-   already owned. Then Tier B FIDO2/YubiKey behind the same `IUnlockProvider`.
-   Dual-key support, recovery code.
+4. **USB unlock.** ✅ Tier A done: enrollment wizard, rotating secret, copy evidence,
+   lock/unlock state machine, recovery code, multiple keys. Tier B (FIDO2/YubiKey)
+   still to come behind the same `IUnlockProvider`.
 5. **Enforcement.** Policy keys, force-install, incognito off, watchdog, unmanaged
    browser handling, uninstall requires unlock, fail-safe states.
 6. **Feed toggles** + sites catalog + lock-aware popup/GUI.

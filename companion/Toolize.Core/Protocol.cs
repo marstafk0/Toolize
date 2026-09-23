@@ -69,6 +69,11 @@ public static class Verbs
     public const string SetChannel = "set-channel";
     public const string ApplyUpdate = "apply-update";
     public const string Doctor = "doctor";
+    public const string Drives = "drives";
+    public const string EnrollKey = "enroll-key";
+    public const string RevokeKey = "revoke-key";
+    public const string Recover = "recover";
+    public const string IssueRecovery = "issue-recovery";
     /// <summary>Extension handshake: reports its version, receives the settings of record.</summary>
     public const string ExtensionHello = "extension-hello";
     /// <summary>Extension liveness ping plus per-tab counters.</summary>

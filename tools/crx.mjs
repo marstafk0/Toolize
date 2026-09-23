@@ -33,7 +33,7 @@ function walk(dir, base = dir, out = []) {
 }
 
 /** Minimal deflate ZIP writer — enough for an extension package. */
-function zipDirectory(dir) {
+export function zipDirectory(dir) {
   const local = [];
   const central = [];
   let offset = 0;

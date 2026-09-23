@@ -55,7 +55,12 @@
       "Bash(node tools/stamp.mjs)",
       "PowerShell($dir = \"C:\\\\ProgramData\\\\Toolize-dev\"; $acl = Get-Acl $dir; $acl.SetAccessRuleProtection\\($false, $true\\); Set-Acl $dir $acl; Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue; if \\(Test-Path $dir\\) { \"still there: \" + \\(\\(Get-Acl $dir\\).Access | ForEach-Object { $_.IdentityReference }\\) -join \",\" } else { \"cleared\" })",
       "Bash(sed -i \"/void randomUUID;/d; s/import { createHash, randomUUID } from 'node:crypto';/import { createHash } from 'node:crypto';/\" tools/release.mjs)",
-      "Bash(node tools/release.mjs --channel dev --local)"
+      "Bash(node tools/release.mjs --channel dev --local)",
+      "WebFetch(domain:support.google.com)",
+      "WebSearch",
+      "WebFetch(domain:chromeenterprise.google)",
+      "Bash(sed -i 's|^function zipDirectory\\(dir\\) {|export function zipDirectory\\(dir\\) {|' tools/crx.mjs)",
+      "Bash(node tools/webstore.mjs)"
     ],
     "additionalDirectories": [
       "C:\\ProgramData\\Toolize-dev"

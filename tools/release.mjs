@@ -34,7 +34,8 @@ const iscc = process.env.ISCC ?? join(process.env.LOCALAPPDATA ?? '', 'Programs'
 
 // ---------------------------------------------------------------- build
 
-const { version, repo } = stamp(newVersion);
+const meta = stamp(newVersion);
+const { version, repo } = meta;
 const tag = channel === 'dev' ? `v${version}-dev` : `v${version}`;
 const assetUrl = (name) => `https://github.com/${repo}/releases/download/${tag}/${name}`;
 const names = {
@@ -74,6 +75,7 @@ if (!existsSync(iscc)) throw new Error(`Inno Setup not found at ${iscc} (set ISC
 run(iscc, [
   `/DAppVersion=${version}`,
   `/DExtId=${extensionId()}`,
+  `/DStoreExtId=${meta.storeExtensionId ?? ''}`,
   `/DUpdateXmlUrl=${assetUrl(names.updateXml)}`,
   `/DSourceDir=${appDir}`,
   join(root, 'installer/toolize.iss'),

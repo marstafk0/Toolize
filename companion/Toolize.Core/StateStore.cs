@@ -72,6 +72,72 @@ public sealed class StateStore
         }
     }
 
+    // ---------------------------------------------------------------- unlock keys
+
+    public IReadOnlyList<EnrolledKey> Keys
+    {
+        get { lock (_gate) return _state.Keys; }
+    }
+
+    public void AddKey(EnrolledKey key)
+    {
+        lock (_gate)
+        {
+            _state = _state with { Keys = [.. _state.Keys.Where(k => k.Id != key.Id), key] };
+            Save();
+        }
+    }
+
+    /// <summary>Persists a rotated key. Silently ignores a key that was revoked meanwhile.</summary>
+    public void UpdateKey(EnrolledKey key)
+    {
+        lock (_gate)
+        {
+            if (!_state.Keys.Any(k => k.Id == key.Id)) return;
+            _state = _state with { Keys = [.. _state.Keys.Select(k => k.Id == key.Id ? key : k)] };
+            Save();
+        }
+    }
+
+    public bool RemoveKey(string id)
+    {
+        lock (_gate)
+        {
+            var remaining = _state.Keys.Where(k => k.Id != id).ToList();
+            if (remaining.Count == _state.Keys.Count) return false;
+            _state = _state with { Keys = remaining };
+            Save();
+            return true;
+        }
+    }
+
+    public void SetRecoveryCode(string code)
+    {
+        lock (_gate)
+        {
+            _state = _state with { RecoveryHash = Secrets.Hash(Secrets.Normalise(code)), RecoveryUsed = false };
+            Save();
+        }
+    }
+
+    public bool HasRecoveryCode
+    {
+        get { lock (_gate) return _state.RecoveryHash is not null && !_state.RecoveryUsed; }
+    }
+
+    /// <summary>One-time use: burns the code whether or not the caller does anything with it.</summary>
+    public bool UseRecoveryCode(string code)
+    {
+        lock (_gate)
+        {
+            if (_state.RecoveryHash is null || _state.RecoveryUsed) return false;
+            if (Secrets.Hash(Secrets.Normalise(code)) != _state.RecoveryHash) return false;
+            _state = _state with { RecoveryUsed = true, Keys = [] };
+            Save();
+            return true;
+        }
+    }
+
     /// <summary>Append-only tamper/audit note. Records that something happened, never what was viewed.</summary>
     public void Note(string message)
     {
@@ -167,5 +233,9 @@ public sealed class StateStore
         public Settings Settings { get; init; } = Settings.Default;
         public string Channel { get; init; } = "stable";
         public IReadOnlyList<string> Notes { get; init; } = [];
+        public IReadOnlyList<EnrolledKey> Keys { get; init; } = [];
+        /// <summary>SHA-256 of the one-time recovery code, if one was issued.</summary>
+        public string? RecoveryHash { get; init; }
+        public bool RecoveryUsed { get; init; }
     }
 }

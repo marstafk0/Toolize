@@ -1,0 +1,84 @@
+<Window x:Class="Toolize.Gui.EnrollWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Set up a USB key" Height="560" Width="460"
+        Background="#FBFAF8" FontFamily="Segoe UI" FontSize="13"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Muted" Color="#6B6862" />
+        <SolidColorBrush x:Key="Accent" Color="#2F5D50" />
+        <SolidColorBrush x:Key="Bad" Color="#B03A2E" />
+        <Style TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="#1D1C1A" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource Accent}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#C9C6C0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock x:Name="StepTitle" FontSize="17" FontWeight="SemiBold" Text="Choose a USB drive" />
+            <TextBlock x:Name="StepHint" Margin="0,6,0,14" Foreground="{StaticResource Muted}"
+                       Text="Pick a stick you can dedicate to this. Toolize writes a small key file to it; nothing else on the drive is touched." />
+        </StackPanel>
+
+        <!-- Step 1: pick a drive -->
+        <StackPanel x:Name="StepPick" Grid.Row="1">
+            <ListBox x:Name="DriveList" Height="180" SelectionChanged="OnDriveSelected" />
+            <TextBlock Margin="0,10,0,4" Text="Name this key" FontWeight="SemiBold" />
+            <TextBox x:Name="KeyName" Padding="6" Text="Partner's key" />
+            <TextBlock Margin="0,12,0,0" Foreground="{StaticResource Muted}"
+                       Text="Honest about what this gives you: a file on a stick can be copied, so this is friction rather than proof. Toolize rotates the key every minute it's plugged in, so if a copy and the original are both ever used, it notices and records it. A copy used while the original stays in a drawer won't be spotted until the original comes back." />
+        </StackPanel>
+
+        <!-- Step 2: unplug/replug verification -->
+        <StackPanel x:Name="StepVerify" Grid.Row="1" Visibility="Collapsed">
+            <TextBlock x:Name="VerifyText" FontSize="14"
+                       Text="Key written. Now unplug the drive so we can check that Toolize locks without it." />
+            <TextBlock x:Name="VerifyState" Margin="0,16,0,0" FontSize="15" FontWeight="SemiBold" Text="Waiting for you to unplug it…" />
+        </StackPanel>
+
+        <!-- Step 3: recovery code -->
+        <StackPanel x:Name="StepRecovery" Grid.Row="1" Visibility="Collapsed">
+            <TextBlock Text="Write this recovery code down before you close this window. It is shown once and never again." />
+            <Border Background="White" BorderBrush="#E4E1DB" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,14">
+                <TextBox x:Name="RecoveryCode" FontFamily="Consolas" FontSize="18" IsReadOnly="True"
+                         BorderThickness="0" Background="Transparent" TextAlignment="Center" />
+            </Border>
+            <TextBlock Foreground="{StaticResource Muted}"
+                       Text="It is the only way back in if every key is lost, and it works exactly once. Give it to your accountability partner, sealed — if you keep it yourself, it is simply a way around the lock." />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <TextBlock x:Name="ErrorText" Foreground="{StaticResource Bad}" VerticalAlignment="Center" Margin="0,0,12,0" />
+            <Button x:Name="CancelButton" Content="Cancel" Background="#8A8A8A" Margin="0,0,8,0" Click="OnCancel" />
+            <Button x:Name="NextButton" Content="Write the key" IsEnabled="False" Click="OnNext" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -7,13 +7,14 @@ namespace Toolize.Service;
 /// The decision point. Clients propose; this class disposes.
 ///
 /// The rule that matters: strengthening changes are always allowed, weakening changes
-/// are refused unless a verified key is present. Phase 3 has no key enrolled, so nothing
-/// is refused yet — but every weakening still passes through this gate, so phase 4 only
-/// has to make <see cref="LockService"/> tell the truth.
+/// are refused unless a verified key is present. Presence is re-checked at the moment of
+/// the decision, never read from a cached flag — pulling the key out must take effect
+/// immediately, even mid-operation.
 /// </summary>
 public sealed class RequestHandler(
     StateStore store,
     LockService locks,
+    UnlockService unlock,
     UpdateService updates,
     ExtensionTracker extension,
     DoctorService doctor,
@@ -32,6 +33,11 @@ public sealed class RequestHandler(
                 Verbs.SetChannel => await SetChannelAsync(request, ct),
                 Verbs.ApplyUpdate => await ApplyUpdateAsync(request, ct),
                 Verbs.Doctor => Response.Success(request.Id, await doctor.RunAsync(ct)),
+                Verbs.Drives => Response.Success(request.Id, unlock.Drives()),
+                Verbs.EnrollKey => EnrollKey(request),
+                Verbs.RevokeKey => RevokeKey(request),
+                Verbs.Recover => Recover(request),
+                Verbs.IssueRecovery => Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() }),
                 Verbs.ExtensionHello => ExtensionHello(request),
                 Verbs.ExtensionHeartbeat => ExtensionHeartbeat(request),
                 _ => Response.Failure(request.Id, $"unknown verb '{request.Verb}'", "unknown-verb"),
@@ -52,6 +58,8 @@ public sealed class RequestHandler(
         Lock = locks.State,
         Extension = extension.State,
         Update = updates.Last,
+        Keys = store.Keys,
+        HasRecoveryCode = store.HasRecoveryCode,
         Notes = store.Notes.TakeLast(20).ToList(),
     };
 
@@ -62,7 +70,9 @@ public sealed class RequestHandler(
 
         var before = store.Settings;
         var after = args.Settings;
-        if (SettingsPolicy.IsWeakening(before, after) && !locks.State.CanWeaken)
+        // Re-check the key at the moment of the decision. A key pulled out a second ago
+        // must not authorise anything, so the cached state is never good enough here.
+        if (SettingsPolicy.IsWeakening(before, after) && !unlock.Refresh().CanWeaken)
         {
             var what = string.Join(", ", SettingsPolicy.Weakenings(before, after));
             store.Note($"refused while locked: {what}");
@@ -91,10 +101,53 @@ public sealed class RequestHandler(
     {
         // Updating is neither strengthening nor weakening, but it does replace the
         // binaries, so it is refused while locked once a key is enrolled.
-        if (!locks.State.CanWeaken)
+        if (!unlock.Refresh().CanWeaken)
             return Response.Failure(request.Id, "the unlock key must be plugged in to update", "locked");
         var result = await updates.ApplyAsync(ct);
         return result.Ok ? Response.Success(request.Id, result) : Response.Failure(request.Id, result.Message);
+    }
+
+    private Response EnrollKey(Request request)
+    {
+        var args = request.ArgsAs<EnrollKeyArgs>();
+        if (args is null || string.IsNullOrWhiteSpace(args.Drive))
+            return Response.Failure(request.Id, "which drive?", "bad-request");
+        try
+        {
+            var key = unlock.Enroll(args.Drive, string.IsNullOrWhiteSpace(args.Name) ? "USB key" : args.Name);
+            // First key: issue the recovery code now, while the user is paying attention.
+            var recovery = store.Keys.Count == 1 && !store.HasRecoveryCode ? unlock.IssueRecoveryCode() : null;
+            return Response.Success(request.Id, new { key, recovery });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Response.Failure(request.Id, ex.Message, "locked");
+        }
+    }
+
+    private Response RevokeKey(Request request)
+    {
+        var id = request.ArgsAs<RevokeKeyArgs>()?.Id;
+        if (id is null) return Response.Failure(request.Id, "which key?", "bad-request");
+        try
+        {
+            return unlock.Revoke(id)
+                ? Response.Success(request.Id, new { removed = id })
+                : Response.Failure(request.Id, $"no key with id {id}", "not-found");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Response.Failure(request.Id, ex.Message, "locked");
+        }
+    }
+
+    private Response Recover(Request request)
+    {
+        var code = request.ArgsAs<RecoverArgs>()?.Code;
+        if (string.IsNullOrWhiteSpace(code)) return Response.Failure(request.Id, "no code supplied", "bad-request");
+        return unlock.Recover(code)
+            ? Response.Success(request.Id, new { recovered = true })
+            : Response.Failure(request.Id, "that recovery code isn't valid, or it has already been used", "bad-code");
     }
 
     private Response ExtensionHello(Request request)

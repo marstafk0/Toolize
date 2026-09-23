@@ -9,6 +9,8 @@ public sealed record StatusReport
     public required LockState Lock { get; init; }
     public required ExtensionState Extension { get; init; }
     public UpdateInfo? Update { get; init; }
+    public IReadOnlyList<EnrolledKey> Keys { get; init; } = [];
+    public bool HasRecoveryCode { get; init; }
     public IReadOnlyList<string> Notes { get; init; } = [];
 }
 
@@ -49,6 +51,12 @@ public sealed record Check(string Name, bool Ok, string Detail, string? Fix = nu
 public sealed record SetSettingsArgs(Settings Settings);
 
 public sealed record SetChannelArgs(string Channel);
+
+public sealed record EnrollKeyArgs(string Drive, string Name);
+
+public sealed record RevokeKeyArgs(string Id);
+
+public sealed record RecoverArgs(string Code);
 
 public sealed record ExtensionHelloArgs(string Version);
 

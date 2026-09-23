@@ -108,10 +108,13 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="UNLOCK KEY" />
                         <TextBlock x:Name="LockText" Text="No key enrolled." />
-                        <TextBlock Style="{StaticResource Hint}"
-                                   Text="A dedicated USB key will gate every change that weakens protection. Coming in the next update." />
-                        <Button x:Name="EnrollButton" Margin="0,12,0,0" HorizontalAlignment="Left"
-                                Content="Set up a USB key" IsEnabled="False" />
+                        <TextBlock Style="{StaticResource Hint}" x:Name="LockHint"
+                                   Text="A dedicated USB key gates every change that weakens protection. Removing it re-locks immediately." />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button x:Name="EnrollButton" Content="Set up a USB key" Click="OnEnrollClicked" />
+                            <Button x:Name="RevokeButton" Margin="8,0,0,0" Background="#8A8A8A" Content="Remove key"
+                                    Visibility="Collapsed" Click="OnRevokeClicked" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

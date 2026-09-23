@@ -65,6 +65,8 @@ public static class Verbs
     public const string GetSettings = "get-settings";
     public const string SetSettings = "set-settings";
     public const string CheckUpdate = "check-update";
+    /// <summary>Switch between the stable and dev release channels.</summary>
+    public const string SetChannel = "set-channel";
     public const string ApplyUpdate = "apply-update";
     public const string Doctor = "doctor";
     /// <summary>Extension handshake: reports its version, receives the settings of record.</summary>

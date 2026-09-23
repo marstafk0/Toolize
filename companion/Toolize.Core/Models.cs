@@ -48,6 +48,8 @@ public sealed record Check(string Name, bool Ok, string Detail, string? Fix = nu
 
 public sealed record SetSettingsArgs(Settings Settings);
 
+public sealed record SetChannelArgs(string Channel);
+
 public sealed record ExtensionHelloArgs(string Version);
 
 public sealed record ExtensionHeartbeatArgs(string Version, int Blocked, int Checked);

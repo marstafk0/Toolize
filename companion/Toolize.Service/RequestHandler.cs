@@ -29,6 +29,7 @@ public sealed class RequestHandler(
                 Verbs.GetSettings => Response.Success(request.Id, store.Settings),
                 Verbs.SetSettings => SetSettings(request),
                 Verbs.CheckUpdate => Response.Success(request.Id, await updates.CheckAsync(ct)),
+                Verbs.SetChannel => await SetChannelAsync(request, ct),
                 Verbs.ApplyUpdate => await ApplyUpdateAsync(request, ct),
                 Verbs.Doctor => Response.Success(request.Id, await doctor.RunAsync(ct)),
                 Verbs.ExtensionHello => ExtensionHello(request),
@@ -73,6 +74,17 @@ public sealed class RequestHandler(
             store.Note($"weakened: {string.Join(", ", SettingsPolicy.Weakenings(before, after))}");
         extension.SettingsChanged();
         return Response.Success(request.Id, saved);
+    }
+
+    /// <summary>Channel choice decides which releases this machine is offered.</summary>
+    private async Task<Response> SetChannelAsync(Request request, CancellationToken ct)
+    {
+        var channel = request.ArgsAs<SetChannelArgs>()?.Channel?.ToLowerInvariant();
+        if (channel is not ("stable" or "dev"))
+            return Response.Failure(request.Id, "channel must be 'stable' or 'dev'", "bad-request");
+        store.SetChannel(channel);
+        store.Note($"channel set to {channel}");
+        return Response.Success(request.Id, await updates.CheckAsync(ct));
     }
 
     private async Task<Response> ApplyUpdateAsync(Request request, CancellationToken ct)

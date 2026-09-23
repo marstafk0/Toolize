@@ -28,6 +28,15 @@ try
             await SetAsync(rest.Skip(1).ToArray());
             break;
 
+        case "channel":
+        {
+            var name = rest.Skip(1).FirstOrDefault();
+            if (name is null) { Console.WriteLine((await Ask(Verbs.Status)).DataAs<StatusReport>()?.Channel); break; }
+            var info = (await Ask(Verbs.SetChannel, new SetChannelArgs(name))).DataAs<UpdateInfo>();
+            Console.WriteLine($"channel set to {name}" + (info?.Available == true ? $" — {info.Version} available" : ""));
+            break;
+        }
+
         case "check-update":
         {
             var info = (await Ask(Verbs.CheckUpdate)).DataAs<UpdateInfo>();
@@ -60,7 +69,7 @@ try
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, check-update, update, doctor, notes");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, check-update, update, doctor, notes");
             return 2;
     }
     return 0;

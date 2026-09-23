@@ -81,6 +81,7 @@ Filename: "{sys}\sc.exe"; Parameters: "delete Toolize"; Flags: runhidden; RunOnc
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+Type: filesandordirs; Name: "{commonappdata}Toolizeextension"
 
 [Code]
 // Inno's StringChangeEx returns a count, not the string; wrap it for readability.

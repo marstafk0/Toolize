@@ -91,6 +91,12 @@ Type: filesandordirs; Name: "{app}"
 Type: filesandordirs; Name: "{commonappdata}\Toolize\extension"
 
 [Code]
+var
+  // Set once PrepareToInstall has stopped the service, and once the files are in.
+  // If the first is true and the second isn't, setup failed or was cancelled midway.
+  ServiceStopped: Boolean;
+  Installed: Boolean;
+
 // Inno's StringChangeEx returns a count, not the string; wrap it for readability.
 function StringChangeEx2(const S, FromStr, ToStr: string; SupportDBCS: Boolean): string;
 begin
@@ -125,7 +131,22 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     WriteNativeHostManifest();
+    Installed := True;
+  end;
+end;
+
+// A failed update must never leave the machine unprotected. Setup stops the service
+// before replacing files; if it then aborts (a file in use, a cancelled UAC prompt, a
+// crash in the middle), the old files are still in place, so start the old service
+// again. Without this, protection stayed off until the next reboot.
+procedure DeinitializeSetup();
+var
+  ResultCode: Integer;
+begin
+  if ServiceStopped and not Installed then
+    Exec(ExpandConstant('{sys}\sc.exe'), 'start Toolize', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function HasStoreId(): Boolean;
@@ -198,6 +219,7 @@ var
   ResultCode: Integer;
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop Toolize', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  ServiceStopped := True;
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.Gui.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.Cli.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.NativeHost.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);

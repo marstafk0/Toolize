@@ -10,10 +10,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { findChromium } from './chromium.mjs';
+import { findChromium, isolatedDist } from './chromium.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(root, 'dist');
+const dist = isolatedDist(join(root, 'dist'));
 const server = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: ['ignore', 'inherit', 'inherit'] });
 const profile = mkdtempSync(join(tmpdir(), 'bb-corpus-'));
 let context;

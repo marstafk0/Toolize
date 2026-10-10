@@ -8,11 +8,16 @@ import type { Stamper, State } from './state';
 
 /** Images under this size (px) are icons/emoji: not worth classifying. */
 const MIN_SIDE = 48;
+/** Classification attempts per image before it is left blurred for good. */
+const MAX_ATTEMPTS = 3;
+/** First retry delay; doubles each time. */
+const RETRY_MS = 1500;
 
 interface Track {
   src: string;
   key: string;
   refining?: boolean;
+  attempts?: number;
 }
 
 /**
@@ -105,8 +110,18 @@ export class ImageWatcher {
       if (this.current(img, t)) this.apply(img, t, r);
     } catch (e) {
       // A request that fails after protection was switched off must not re-stamp it.
-      if (this.current(img, t)) this.stamper.set(img, 'error');
+      if (!this.current(img, t)) return;
+      this.stamper.set(img, 'error');
       if (__DEV__) console.warn('[toolize] image classify failed', t.src.slice(0, 120), e);
+      // Most failures are transient: the service worker or classifier restarting, a
+      // dropped message, a CDN hiccup. Without a retry a perfectly fine thumbnail stays
+      // blurred until the page is reloaded. It stays blurred while it waits.
+      t.attempts = (t.attempts ?? 1) + 1;
+      if (t.attempts <= MAX_ATTEMPTS) {
+        setTimeout(() => {
+          if (this.current(img, t) && img.isConnected) this.queue.observe(img);
+        }, RETRY_MS * 2 ** (t.attempts - 2));
+      }
     }
   }
 

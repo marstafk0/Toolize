@@ -6,8 +6,18 @@ import type { Stamper, State } from './state';
 /** How often each sampled video is classified, and how far it backs off when stable. */
 const SAMPLE_MS = 1000;
 const MAX_SAMPLE_MS = 4000;
+/**
+ * Gap between samples until a video has its first verdict. A new video is blurred
+ * until CLEAN_STREAK frames come back clean; at the steady 1/s that is 3-4s of blur on
+ * every YouTube hover preview, which reads as the blur hanging.
+ */
+const FIRST_SAMPLE_MS = 250;
 /** Tick rate; each video is sampled on its own schedule. */
-const TICK_MS = 500;
+const TICK_MS = 250;
+/** Consecutive failed samples before an unverified video is blurred. */
+const MAX_FAILURES = 3;
+/** Wait after a failed sample. Failures are retried, never final. */
+const RETRY_MS = 5000;
 /**
  * Above this average round trip the classifier is the bottleneck (no GPU, busy
  * machine), so sample one video at a time and let images and backgrounds through.
@@ -37,7 +47,20 @@ interface Track {
   /** Current gap between samples (grows while the verdict stays stable). */
   every: number;
   nextAt: number;
+  /** Failed samples in a row; reset by any success. */
+  failures: number;
+  /** currentTime of the last frame classified while paused, so a still is checked once. */
+  stillAt?: number;
+  /**
+   * A live stream: never paused. Pausing a live stream throws it behind the live edge
+   * (or stalls it), and a false positive would then repeat on every resume.
+   */
+  live?: boolean;
+  lastDuration?: number;
 }
+
+/** The video's pixels can't be read at all; retrying won't change that. */
+class Unreadable extends Error {}
 
 /**
  * Video classification: samples frames from playing videos ~1/s and blurs on the
@@ -100,7 +123,7 @@ export class VideoWatcher {
     let t = this.tracks.get(video);
     const src = video.currentSrc || video.src;
     if (!t || t.src !== src) {
-      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: SAMPLE_MS, nextAt: 0 };
+      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: FIRST_SAMPLE_MS, nextAt: 0, failures: 0 };
       this.tracks.set(video, t);
       this.io.observe(video);
       this.stamper.set(video, this.pendingState());
@@ -119,14 +142,14 @@ export class VideoWatcher {
   onPlay(video: HTMLVideoElement): void {
     const t = this.tracks.get(video);
     if (!t || t.dead || !this.settings?.enabled) return;
-    // New content: sample at full rate again.
-    t.every = SAMPLE_MS;
     t.nextAt = 0;
     if (this.stamper.get(video) === 'blocked') {
       t.recent = [];
       t.cleanStreak = 0;
       this.stamper.set(video, this.pendingState());
     }
+    // New content: sample at full rate again, and quickly if there's no verdict yet.
+    t.every = this.stamper.get(video) === 'clean' ? SAMPLE_MS : FIRST_SAMPLE_MS;
   }
 
   onDrm(video: HTMLVideoElement): void {
@@ -155,7 +178,11 @@ export class VideoWatcher {
     }
   }
 
-  /** One pass over the visible, playing videos that are due a sample. */
+  /**
+   * One pass over the visible videos that are due a sample: playing ones on their
+   * schedule, paused ones once per still frame (otherwise a video paused before its
+   * verdict, like a hover preview or a player that didn't autoplay, stays blurred).
+   */
   private async tick(): Promise<void> {
     if (document.hidden || !this.settings?.enabled) return;
     const now = performance.now();
@@ -163,11 +190,12 @@ export class VideoWatcher {
     // not starve the images and backgrounds waiting behind them.
     const budget = this.avgLatency > SLOW_CLASSIFIER_MS ? 1 : MAX_CONCURRENT;
     const live = [...this.candidates]
-      .filter((v) => v.isConnected && !v.paused && v.readyState >= 2 && !this.busy.has(v))
+      .filter((v) => v.isConnected && v.readyState >= 2 && !this.busy.has(v))
       .filter((v) => v.videoWidth >= MIN_SIDE && v.videoHeight >= MIN_SIDE)
       .filter((v) => {
         const t = this.tracks.get(v);
-        return t && !t.dead && now >= t.nextAt;
+        if (!t || t.dead || now < t.nextAt) return false;
+        return !v.paused || t.stillAt !== v.currentTime;
       })
       .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)
       .slice(0, budget);
@@ -186,6 +214,8 @@ export class VideoWatcher {
     if (!t) return;
     this.busy.add(video);
     const started = performance.now();
+    let failed = false;
+    this.noteDuration(video, t);
     try {
       const tag = __DEV__ ? video.dataset.tzTest : undefined;
       let frame: string;
@@ -197,21 +227,33 @@ export class VideoWatcher {
         if (this.tracks.get(video) === t) this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
         return;
       }
+      const still = video.paused ? video.currentTime : undefined;
       const r = await this.client.classifyFrame(frame, tag);
       if (this.tracks.get(video) !== t) return;
+      t.failures = 0;
       // A frame can't be re-scored on tiles after the fact, so treat 'refine'
       // (borderline) as flagged and let the clean streak reveal it again.
-      this.record(video, t, decide(r, PRESETS[this.settings!.preset]) !== 'clean');
+      const flagged = decide(r, PRESETS[this.settings!.preset]) !== 'clean';
+      if (still !== undefined) this.recordStill(video, t, still, flagged);
+      else this.record(video, t, flagged);
     } catch (e) {
       if (this.tracks.get(video) === t) {
-        t.dead = true;
-        this.stamper.set(video, 'error');
+        if (e instanceof Unreadable) {
+          t.dead = true;
+          this.stamper.set(video, 'error');
+        } else {
+          // Transient (the classifier restarting, a dropped message). One bad sample
+          // must not blur a long video or a live stream for good: keep the current
+          // verdict, blur only after repeated failures, and keep trying either way.
+          failed = true;
+          if (++t.failures >= MAX_FAILURES) this.stamper.set(video, 'error');
+        }
       }
       if (__DEV__) console.warn('[toolize] video sample failed', t.src.slice(0, 120), e);
     } finally {
       this.busy.delete(video);
       this.noteLatency(performance.now() - started);
-      t.nextAt = performance.now() + t.every;
+      t.nextAt = performance.now() + (failed ? RETRY_MS : t.every);
     }
   }
 
@@ -221,7 +263,7 @@ export class VideoWatcher {
       this.onDrm(video);
       return false;
     }
-    if (t.fileTried || !/^https?:/.test(t.src)) throw new Error('no readable pixels');
+    if (t.fileTried || !/^https?:/.test(t.src)) throw new Unreadable('no readable pixels');
     t.fileTried = true;
     const key = this.client.key(`video:${t.src}`);
     try {
@@ -234,6 +276,25 @@ export class VideoWatcher {
     }
   }
 
+  /**
+   * A live stream's duration is Infinity (HLS) or keeps growing as the live edge moves
+   * (YouTube's MSE player). A video on demand has a fixed one.
+   */
+  private noteDuration(video: HTMLVideoElement, t: Track): void {
+    const d = video.duration;
+    if (d === Infinity) t.live = true;
+    else if (!video.paused && t.lastDuration !== undefined && d > t.lastDuration + 0.5) t.live = true;
+    if (Number.isFinite(d)) t.lastDuration = d;
+  }
+
+  /** A paused frame doesn't change, so one classification is its whole verdict. */
+  private recordStill(video: HTMLVideoElement, t: Track, at: number, flagged: boolean): void {
+    t.stillAt = at;
+    t.recent = [flagged];
+    t.cleanStreak = flagged ? 0 : CLEAN_STREAK;
+    this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
+  }
+
   private record(video: HTMLVideoElement, t: Track, flagged: boolean): void {
     t.recent.push(flagged);
     if (t.recent.length > WINDOW) t.recent.shift();
@@ -244,7 +305,7 @@ export class VideoWatcher {
       this.setVerdict(video, t, 'blocked');
     } else if (t.cleanStreak >= CLEAN_STREAK) {
       // Stable and clean: ease off, so a long video doesn't classify forever at 1/s.
-      t.every = Math.min(MAX_SAMPLE_MS, t.every * 1.5);
+      t.every = Math.min(MAX_SAMPLE_MS, Math.max(SAMPLE_MS, t.every * 1.5));
       this.setVerdict(video, t, 'clean');
     }
   }
@@ -252,7 +313,7 @@ export class VideoWatcher {
   private setVerdict(video: HTMLVideoElement, t: Track, verdict: State): void {
     t.verdict = verdict;
     this.stamper.set(video, verdict);
-    if (verdict === 'blocked') video.pause();
+    if (verdict === 'blocked' && !t.live) video.pause();
   }
 
   private pendingState(): State {

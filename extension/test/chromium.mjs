@@ -1,5 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
@@ -36,4 +36,20 @@ export function findChromium() {
     }
   }
   return undefined;
+}
+
+/**
+ * A copy of the built extension without the nativeMessaging permission. With it, a
+ * machine that has the Toolize app installed connects the test browser to the real
+ * service, which pushes its own settings over the ones the test set — every result
+ * then reflects that machine's settings, not the test's.
+ */
+export function isolatedDist(dist) {
+  const copy = mkdtempSync(join(tmpdir(), 'tz-dist-'));
+  cpSync(dist, copy, { recursive: true });
+  const manifestPath = join(copy, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.permissions = (manifest.permissions ?? []).filter((p) => p !== 'nativeMessaging');
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return copy;
 }

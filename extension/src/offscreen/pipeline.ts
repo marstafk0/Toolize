@@ -68,6 +68,7 @@ export class ClassifyPipeline {
   }
 
   private async run(req: ClassifyJob, prior?: ClassifyResult): Promise<ClassifyResult> {
+    if (__DEV__ && devFailOnce(req)) throw new Error('test: transient failure');
     const t0 = performance.now();
     const { source, refine } = req;
     const frames =
@@ -173,6 +174,17 @@ class Semaphore {
       else this.free++;
     }
   }
+}
+
+const devFailed = new Set<string>();
+
+/** Dev-build-only: the first request for a `__tz_test_fail_once` tag fails, as if transiently. */
+function devFailOnce(req: ClassifyJob): boolean {
+  const { source } = req;
+  const tag = req.testTag ?? ('url' in source ? source.url : 'videoUrl' in source ? source.videoUrl : '');
+  if (!tag.includes('__tz_test_fail_once') || devFailed.has(tag)) return false;
+  devFailed.add(tag);
+  return true;
 }
 
 /**

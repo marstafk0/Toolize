@@ -14,10 +14,10 @@ import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 import { chromium } from 'playwright-core';
-import { findChromium } from './chromium.mjs';
+import { findChromium, isolatedDist } from './chromium.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(root, 'dist');
+const dist = isolatedDist(join(root, 'dist'));
 const artifacts = join(root, 'test/.artifacts');
 const BASE = 'http://localhost:8787';
 mkdirSync(artifacts, { recursive: true });
@@ -132,13 +132,13 @@ try {
   await page.evaluate(() => document.getElementById('videos').scrollIntoView({ block: 'center' }));
   const videos = await waitFor(async () => {
     const v = (await collect()).filter((i) => i.kind === 'video');
-    return v.length === 5 && v.every((i) => i.state === i.expect) ? v : null;
+    return v.length === 9 && v.every((i) => i.state === i.expect) ? v : null;
   }, { timeout: 45_000 });
-  check('videos reach expected state (blob, cross-origin file, DRM)', !!videos,
+  check('videos reach expected state (blob, cross-origin file, DRM, paused, live, retried)', !!videos,
     videos ? '' : JSON.stringify((await collect()).filter((i) => i.kind === 'video').map((i) => `${i.expect}/${i.state}`)));
   const blockedVideos = (videos ?? []).filter((i) => i.expect === 'blocked');
-  check('flagged videos are paused', blockedVideos.length === 2 && blockedVideos.every((i) => i.paused === true),
-    JSON.stringify(blockedVideos.map((i) => i.paused)));
+  check('flagged videos are paused, except live ones', blockedVideos.length === 4 && blockedVideos.every((i) => i.paused === !i.live),
+    JSON.stringify(blockedVideos.map((i) => `${i.live ? 'live' : 'vod'}:${i.paused}`)));
   check('picture-in-picture is refused', (await page.evaluate(() => window.__tryPip())) === 'NotAllowedError');
 
   // ---- phase 2: CSS backgrounds

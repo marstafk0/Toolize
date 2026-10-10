@@ -144,7 +144,7 @@ export class BlurEngine {
   }
 
   private attachRoot(host: Element): void {
-    const root = chrome.dom.openOrClosedShadowRoot(host as HTMLElement) as ShadowRoot | null;
+    const root = shadowRootOf(host);
     if (!root || this.seenRoots.has(root)) return;
     this.seenRoots.add(root);
     this.roots.push(new WeakRef(root));
@@ -170,7 +170,7 @@ export class BlurEngine {
   /** Finds shadow roots with no marker (declarative shadow DOM, pre-install pages). */
   private sweepShadowRoots(scope: Document | ShadowRoot): void {
     for (const el of scope.querySelectorAll('*')) {
-      const root = chrome.dom.openOrClosedShadowRoot(el as HTMLElement) as ShadowRoot | null;
+      const root = shadowRootOf(el);
       if (root && !this.seenRoots.has(root)) {
         this.attachRoot(el);
         this.sweepShadowRoots(root);
@@ -207,5 +207,19 @@ export class BlurEngine {
       };
       chrome.runtime.sendMessage(msg).catch(() => {});
     }, STATS_DEBOUNCE_MS);
+  }
+}
+
+/**
+ * chrome.dom.openOrClosedShadowRoot only accepts HTML elements and throws on anything
+ * else. A sweep over querySelectorAll('*') meets SVG on almost every page (YouTube is
+ * full of it), and one throw ended the sweep, leaving every later root undiscovered.
+ */
+function shadowRootOf(el: Element): ShadowRoot | null {
+  if (!(el instanceof HTMLElement)) return null;
+  try {
+    return chrome.dom.openOrClosedShadowRoot(el) as ShadowRoot | null;
+  } catch {
+    return null;
   }
 }

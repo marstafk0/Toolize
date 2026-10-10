@@ -92,6 +92,7 @@ window.__bbCollect = () => {
         // Backgrounds are hide-or-show, not a state machine: map to the same vocabulary.
         state: kind === 'background' ? (el.getAttribute('data-tz-bg') === 'blocked' ? 'blocked' : 'clean') : el.getAttribute('data-tz'),
         paused: el.localName === 'video' ? el.paused : undefined,
+        live: el.localName === 'video' ? el.hasAttribute('data-live') : undefined,
         docTop: Math.round(off + el.getBoundingClientRect().top + scrollY), // position in the top document
       });
     }
@@ -123,6 +124,9 @@ window.__bbFlashChecks = () => {
  *   blob:  MSE-style page-origin source (canvas readable)
  *   file:  cross-origin without CORS (canvas tainted → offscreen whole-file path)
  *   drm:   fakes an `encrypted` event, which should leave the video alone
+ *   still: paused before playing — the shown frame must still get a verdict
+ *   live:  a MediaStream (duration Infinity) — blurred when flagged, never paused
+ *   retry: its first frame sample fails — must recover, not stay blurred
  */
 window.__setupVideos = async () => {
   const clip = await recordClip();
@@ -141,7 +145,7 @@ window.__setupVideos = async () => {
     v.dataset.expect = expect;
     if (test) v.dataset.tzTest = test;
     document.getElementById('videos').append(v);
-    v.play().catch(() => {});
+    if (v.autoplay) v.play().catch(() => {});
     return v;
   };
 
@@ -151,6 +155,27 @@ window.__setupVideos = async () => {
   add(crossOrigin('b'), 'blocked', '__tz_test_flag');
   const drm = add(blobUrl, 'skip', '__tz_test_flag');
   drm.dispatchEvent(new Event('encrypted')); // pretend Widevine: unreadable, left alone
+
+  add(blobUrl, 'clean', undefined, { autoplay: false, preload: 'auto' });
+  add(blobUrl, 'blocked', '__tz_test_flag', { autoplay: false, preload: 'auto' });
+  add(blobUrl, 'clean', '__tz_test_fail_once');
+
+  // A canvas stream that keeps drawing, like a live broadcast.
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 240;
+  const ctx = c.getContext('2d');
+  const draw = (now) => {
+    ctx.fillStyle = `hsl(${(now / 20) % 360} 50% 50%)`;
+    ctx.fillRect(0, 0, 320, 240);
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+  const live = add('', 'blocked', '__tz_test_flag');
+  live.removeAttribute('src');
+  live.dataset.live = '';
+  live.srcObject = c.captureStream(15);
+  live.play().catch(() => {});
 };
 
 /** Picture-in-Picture must be refused — it renders outside the page, unfiltered. */

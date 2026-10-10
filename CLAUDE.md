@@ -167,7 +167,9 @@ Be precise about this, because "uncopyable USB" is a real distinction:
   policy installs on unmanaged machines, so the store is what makes both installation
   and the phase 5 forcelist possible without enrolling the device. `tools/webstore.mjs`
   builds the upload zip and strips the `key` field; the store id then goes in
-  `version.json` so the native messaging host allows both ids.
+  `version.json` so the native messaging host allows both ids. **Live** (unlisted) as
+  `mckophjbolaofjkhebkcelhnmjofeajf` — that id is what the installer and enforcement
+  force-install, so it must never change.
 - **Release host: GitHub Releases** (decided). `tools/release.mjs` creates a tagged
   release and uploads `update.json`, `update.xml`, the `.crx` and the installer. The
   repo must be public, or the assets need a token — and a token baked into an installed

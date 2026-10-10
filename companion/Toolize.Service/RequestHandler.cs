@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Toolize.Core;
 
@@ -15,6 +16,8 @@ public sealed class RequestHandler(
     StateStore store,
     LockService locks,
     UnlockService unlock,
+    EnforcementService enforcement,
+    WatchdogService watchdog,
     UpdateService updates,
     ExtensionTracker extension,
     DoctorService doctor,
@@ -59,17 +62,26 @@ public sealed class RequestHandler(
         Extension = extension.State,
         Update = updates.Last,
         Keys = store.Keys,
+        Enforcement = new EnforcementState
+        {
+            Applied = enforcement.Applied,
+            Summary = enforcement.Summary,
+            Watchdog = watchdog.Status,
+        },
         HasRecoveryCode = store.HasRecoveryCode,
         Notes = store.Notes.TakeLast(20).ToList(),
     };
 
     private Response SetSettings(Request request)
     {
-        var args = request.ArgsAs<SetSettingsArgs>();
-        if (args?.Settings is null) return Response.Failure(request.Id, "no settings supplied", "bad-request");
+        if (request.Args is not { } args
+            || !args.TryGetProperty("settings", out var patch)
+            || patch.ValueKind != JsonValueKind.Object)
+            return Response.Failure(request.Id, "no settings supplied", "bad-request");
 
         var before = store.Settings;
-        var after = args.Settings;
+        // Overlay, don't replace: a client that doesn't know a setting must not reset it.
+        var after = SettingsPolicy.Overlay(before, patch);
         // Re-check the key at the moment of the decision. A key pulled out a second ago
         // must not authorise anything, so the cached state is never good enough here.
         if (SettingsPolicy.IsWeakening(before, after) && !unlock.Refresh().CanWeaken)
@@ -83,6 +95,8 @@ public sealed class RequestHandler(
         if (SettingsPolicy.IsWeakening(before, after))
             store.Note($"weakened: {string.Join(", ", SettingsPolicy.Weakenings(before, after))}");
         extension.SettingsChanged();
+        // Don't wait for the next reconcile: the user should see the browser change now.
+        enforcement.Apply();
         return Response.Success(request.Id, saved);
     }
 
@@ -153,15 +167,15 @@ public sealed class RequestHandler(
     private Response ExtensionHello(Request request)
     {
         var args = request.ArgsAs<ExtensionHelloArgs>();
-        extension.Hello(args?.Version);
-        log.LogInformation("extension {Version} connected", args?.Version);
-        return Response.Success(request.Id, new { settings = store.Settings, service = AppInfo.Version });
+        extension.Hello(args?.Version, args?.Browser);
+        log.LogInformation("extension {Version} connected from {Browser}", args?.Version, args?.Browser ?? "an unknown browser");
+        return Response.Success(request.Id, new { settings = store.Settings, service = AppInfo.Version, enforced = store.Settings.Enforce });
     }
 
     private Response ExtensionHeartbeat(Request request)
     {
         var args = request.ArgsAs<ExtensionHeartbeatArgs>();
         if (args is not null) extension.Heartbeat(args);
-        return Response.Success(request.Id, new { settings = store.Settings });
+        return Response.Success(request.Id, new { settings = store.Settings, enforced = store.Settings.Enforce });
     }
 }

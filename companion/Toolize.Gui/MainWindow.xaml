@@ -120,6 +120,26 @@
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="ENFORCEMENT" />
+                        <CheckBox x:Name="EnforceBox" Content="Stop the extension being removed from the browser" Click="OnSettingChanged" />
+                        <TextBlock Style="{StaticResource Hint}" x:Name="EnforceHint" />
+                        <StackPanel x:Name="EnforceOptions" Margin="18,10,0,0">
+                            <CheckBox x:Name="BlockIncognitoBox" Content="Block private windows and new profiles" Click="OnSettingChanged" />
+                            <CheckBox x:Name="BlockOtherExtBox" Margin="0,6,0,0" Content="Block all other extensions" Click="OnSettingChanged" />
+                            <CheckBox x:Name="BlockDevToolsBox" Margin="0,6,0,0" Content="Turn off developer tools (also blocks loading unpacked extensions)" Click="OnSettingChanged" />
+                            <TextBlock Margin="0,10,0,4" FontWeight="SemiBold" Text="If a browser runs unprotected" />
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="WatchdogOff" GroupName="watchdog" Content="Ignore" Click="OnSettingChanged" />
+                                <RadioButton x:Name="WatchdogWarn" GroupName="watchdog" Content="Warn me" Click="OnSettingChanged" />
+                                <RadioButton x:Name="WatchdogClose" GroupName="watchdog" Content="Close it" Click="OnSettingChanged" />
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" x:Name="WatchdogHint" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="UPDATES" />
                         <TextBlock x:Name="UpdateText" Text="Checking for updates…" />
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">

@@ -8,6 +8,7 @@ namespace Toolize.Service;
 internal static class ReleaseKey
 {
     public const string Repo = "marstafk0/Toolize";
+    public const string StoreExtensionId = "mckophjbolaofjkhebkcelhnmjofeajf";
     public const string PublicKeyBase64 =
         "MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAy/Thbwqx4fpHfhsISK9y/e7PBXPcxBVMKX5TK6mzbLkbVZDJ/WN3xTCX+IBJMEMoIQ77h1PkcB+dp1/KSgzsAH5YfmyphzlB2j8SKpDkstoWdCPLwuviXBA14l7U5RCrQJOhvgBhYwlXpSYt4Sb+3MMhOZZ5SlAn6bw3/u7Te0TCiG1qyaxLf2MbI+cLmGnoCGQGwJCKxr/viw0/p+/uLCCuggYz0V9M5ueP2KmbDfy4nWhqO6RgtMSvMnjd4HJECsRRJBH9o8r/j8Lw18dnQ7snK9jhLG4x48dnPiuvKdwf18rWzO8uBhKaEUj4hl7ESWhiFXuirfKG14/3n6MrhhYtAxUDcZK7MBKRG4IS0ydnuDBWfpeIMrpiNNG3sxhw7LH5qjvD2kHMH5aIOHqhBr6WrspkM2PG2Jv4UTOeKjqFQ8uVBStXcp4jQncV66CoNcN1QhELlmz/p+7pNECnN9+gebO5zsJnrULhiMHKDBISdoP/us8xgDTgQu3DFPtr5mGGbLprKLSyiQa4nLebh2Kcu3BbLOmJ/V3xIJ+Djkl3kOXhb4zBuYdW2sAOH0ae+yRKe2+K5rIw9Tz1ia+WbX8NGtWwuqmUpkfXAnR+ia78rBFmTt3OPZJFw5Eyb77rEwfBirQ4PV25POc2YxqbkSRdlRvgBvHGBw0gqj9CrtUCAwEAAQ==";
 }

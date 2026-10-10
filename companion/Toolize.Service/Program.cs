@@ -18,6 +18,8 @@ builder.Logging.AddEventLog(o => o.SourceName = "Toolize");
 builder.Services.AddSingleton(new StateStore(StateStore.DefaultDirectory(dev)));
 builder.Services.AddSingleton<LockService>();
 builder.Services.AddSingleton<UnlockService>();
+builder.Services.AddSingleton<EnforcementService>();
+builder.Services.AddSingleton<WatchdogService>();
 builder.Services.AddSingleton<ExtensionTracker>();
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddSingleton<DoctorService>();
@@ -39,6 +41,8 @@ namespace Toolize.Service
     public sealed class ServiceWorker(
         PipeServer pipe,
         UnlockService unlock,
+        EnforcementService enforcement,
+        WatchdogService watchdog,
         UpdateService updates,
         StateStore store,
         ILogger<ServiceWorker> log) : BackgroundService
@@ -50,6 +54,8 @@ namespace Toolize.Service
             log.LogInformation("Toolize {Version} starting, state in {Dir}", AppInfo.Version, store.Directory);
             var server = pipe.RunAsync(ct);
             var keys = unlock.RunAsync(ct); // key presence IS the unlock state, so watch it constantly
+            var policy = enforcement.RunAsync(ct); // reapply browser policy if anything edits it
+            var guard = watchdog.RunAsync(ct);
 
             // Check on start, then occasionally. Nothing installs itself: an update is
             // only applied when someone presses the button.
@@ -65,7 +71,7 @@ namespace Toolize.Service
                     break;
                 }
             }
-            await Task.WhenAll(server, keys);
+            await Task.WhenAll(server, keys, policy, guard);
         }
     }
 }

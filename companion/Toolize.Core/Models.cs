@@ -10,6 +10,7 @@ public sealed record StatusReport
     public required ExtensionState Extension { get; init; }
     public UpdateInfo? Update { get; init; }
     public IReadOnlyList<EnrolledKey> Keys { get; init; } = [];
+    public EnforcementState Enforcement { get; init; } = new();
     public bool HasRecoveryCode { get; init; }
     public IReadOnlyList<string> Notes { get; init; } = [];
 }
@@ -34,6 +35,16 @@ public sealed record ExtensionState
     public DateTimeOffset? LastSeen { get; init; }
     public int Blocked { get; init; }
     public int Checked { get; init; }
+    /// <summary>Which browsers have checked in recently — the watchdog judges each one separately.</summary>
+    public IReadOnlyList<string> Browsers { get; init; } = [];
+}
+
+/// <summary>What enforcement is doing right now, for the GUI and doctor.</summary>
+public sealed record EnforcementState
+{
+    public bool Applied { get; init; }
+    public string Summary { get; init; } = "not enforced";
+    public string Watchdog { get; init; } = "off";
 }
 
 public sealed record UpdateInfo
@@ -58,6 +69,7 @@ public sealed record RevokeKeyArgs(string Id);
 
 public sealed record RecoverArgs(string Code);
 
-public sealed record ExtensionHelloArgs(string Version);
+/// <summary>Browser is "chrome", "edge" or "brave"; null from extensions older than 0.5.3.</summary>
+public sealed record ExtensionHelloArgs(string Version, string? Browser = null);
 
-public sealed record ExtensionHeartbeatArgs(string Version, int Blocked, int Checked);
+public sealed record ExtensionHeartbeatArgs(string Version, int Blocked, int Checked, string? Browser = null);

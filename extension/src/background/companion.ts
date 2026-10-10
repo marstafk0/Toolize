@@ -4,10 +4,11 @@ import { DEFAULT_SETTINGS, saveSettingsLocal, type Settings } from '../shared/se
  * Link to the Toolize desktop app, over Chrome's native messaging.
  *
  * The app is the source of truth for settings; chrome.storage is a cache. When the app
- * is reachable, every change is a *request* it may refuse (phase 4 refuses anything
- * that weakens protection while the USB key is absent). When it isn't reachable, the
- * extension keeps working on its own cached settings — this phase ships no enforcement,
- * so an absent app must not mean an unprotected browser.
+ * is reachable, every change is a *request* it may refuse: anything that weakens
+ * protection needs the USB key plugged in. When it isn't reachable the extension keeps
+ * working from its cached settings — and if the app had told us this machine is
+ * enforced, a sustained absence makes the content scripts block pages instead (see
+ * content/failclosed.ts).
  */
 
 const HOST = 'com.toolize.host';
@@ -17,10 +18,54 @@ const HEARTBEAT_MINUTES = 0.5;
 interface PipeResponse {
   id: string;
   ok: boolean;
-  data?: { settings?: Settings; service?: string };
+  data?: { settings?: Settings; service?: string; enforced?: boolean };
   error?: string;
   code?: string;
 }
+
+/**
+ * Enforcement state, cached so it survives service-worker restarts.
+ *
+ * When the desktop app says protection is enforced, losing contact with it is not a
+ * reason to carry on as normal — it is the signal that something has been switched off.
+ * After a grace period the content scripts block pages instead. Without this, killing
+ * the app would be the easiest bypass in the product.
+ */
+const ENFORCED_KEY = 'enforcement';
+
+export interface EnforcementCache {
+  enforced: boolean;
+  lastSeen: number;
+}
+
+export async function readEnforcement(): Promise<EnforcementCache> {
+  const got = await chrome.storage.local.get(ENFORCED_KEY);
+  return (got[ENFORCED_KEY] as EnforcementCache) ?? { enforced: false, lastSeen: 0 };
+}
+
+async function noteEnforcement(enforced: boolean): Promise<void> {
+  await chrome.storage.local.set({ [ENFORCED_KEY]: { enforced, lastSeen: Date.now() } satisfies EnforcementCache });
+}
+
+/**
+ * Which browser this is, so the app can tell Chrome checking in apart from Edge, where
+ * the extension may be disabled. Brave and Edge both identify as Chrome in the plain
+ * user agent; the client-hint brands and Brave's own navigator.brave are what differ.
+ */
+type Browser = 'chrome' | 'edge' | 'brave';
+
+function detectBrowser(): Browser {
+  const nav = navigator as Navigator & {
+    brave?: unknown;
+    userAgentData?: { brands?: { brand: string }[] };
+  };
+  const brands = nav.userAgentData?.brands?.map((b) => b.brand) ?? [];
+  if (nav.brave !== undefined || brands.includes('Brave')) return 'brave';
+  if (brands.includes('Microsoft Edge') || / Edg\//.test(navigator.userAgent)) return 'edge';
+  return 'chrome';
+}
+
+const BROWSER = detectBrowser();
 
 export interface CompanionStats {
   blocked: number;
@@ -84,9 +129,11 @@ export const isConnected = (): boolean => connected;
 export async function hello(): Promise<Settings | null> {
   try {
     const version = chrome.runtime.getManifest().version;
-    const res = await send('extension-hello', { version });
+    const res = await send('extension-hello', { version, browser: BROWSER });
     connected = res.ok;
-    if (res.ok && res.data?.settings) return saveSettingsLocal(res.data.settings);
+    if (!res.ok) return null;
+    await noteEnforcement(res.data?.enforced === true);
+    if (res.data?.settings) return saveSettingsLocal(res.data.settings);
     return null;
   } catch {
     connected = false;
@@ -97,9 +144,11 @@ export async function hello(): Promise<Settings | null> {
 export async function heartbeat(stats: CompanionStats): Promise<void> {
   try {
     const version = chrome.runtime.getManifest().version;
-    const res = await send('extension-heartbeat', { version, ...stats });
+    const res = await send('extension-heartbeat', { version, browser: BROWSER, ...stats });
     connected = res.ok;
-    if (res.ok && res.data?.settings) await saveSettingsLocal(res.data.settings);
+    if (!res.ok) return;
+    await noteEnforcement(res.data?.enforced === true);
+    if (res.data?.settings) await saveSettingsLocal(res.data.settings);
   } catch {
     connected = false;
   }

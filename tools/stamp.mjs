@@ -50,6 +50,7 @@ namespace Toolize.Service;
 internal static class ReleaseKey
 {
     public const string Repo = "${meta.repo}";
+    public const string StoreExtensionId = "${meta.storeExtensionId ?? ''}";
     public const string PublicKeyBase64 =
         "${releasePublicKeyBase64()}";
 }

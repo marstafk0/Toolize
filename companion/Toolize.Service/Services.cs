@@ -14,6 +14,8 @@ public static class AppInfo
     /// <summary>Public half of the release signing key; the private half never leaves the dev machine.</summary>
     public const string ReleasePublicKey = ReleaseKey.PublicKeyBase64;
     public const string Repo = ReleaseKey.Repo;
+    /// <summary>The Web Store id, which is what policy force-installs.</summary>
+    public const string StoreExtensionId = ReleaseKey.StoreExtensionId;
 }
 
 /// <summary>
@@ -32,6 +34,8 @@ public sealed class ExtensionTracker
 {
     private readonly object _gate = new();
     private ExtensionState _state = new();
+    /// <summary>Last check-in per browser. Key "" is an extension too old to say which.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _seen = new();
 
     /// <summary>Extension counts as connected only if it checked in recently.</summary>
     private static readonly TimeSpan Stale = TimeSpan.FromSeconds(90);
@@ -42,28 +46,58 @@ public sealed class ExtensionTracker
         {
             lock (_gate)
             {
-                var live = _state.LastSeen is { } seen && DateTimeOffset.UtcNow - seen < Stale;
-                return _state with { Connected = live };
+                var live = _state.LastSeen is { } seen && Fresh(seen);
+                var browsers = _seen.Where(p => p.Key != "" && Fresh(p.Value)).Select(p => p.Key).Order().ToList();
+                return _state with { Connected = live, Browsers = browsers };
             }
         }
     }
 
-    public void Hello(string? version)
+    /// <summary>
+    /// Whether the extension in this particular browser is reporting in. One browser
+    /// checking in says nothing about another: Chrome being protected must not cover
+    /// for Edge with the extension disabled.
+    /// </summary>
+    public bool IsConnected(string browser)
     {
-        lock (_gate) _state = _state with { Version = version, LastSeen = DateTimeOffset.UtcNow };
+        lock (_gate)
+        {
+            if (_seen.TryGetValue(browser, out var seen) && Fresh(seen)) return true;
+            // An extension from before per-browser reporting can't say where it runs.
+            // Trust it for any browser until it updates, as the watchdog always did.
+            return _seen.TryGetValue("", out var unknown) && Fresh(unknown);
+        }
+    }
+
+    private static bool Fresh(DateTimeOffset seen) => DateTimeOffset.UtcNow - seen < Stale;
+
+    public void Hello(string? version, string? browser)
+    {
+        lock (_gate)
+        {
+            var now = DateTimeOffset.UtcNow;
+            _state = _state with { Version = version, LastSeen = now };
+            _seen[Normalize(browser)] = now;
+        }
     }
 
     public void Heartbeat(ExtensionHeartbeatArgs args)
     {
         lock (_gate)
+        {
+            var now = DateTimeOffset.UtcNow;
             _state = _state with
             {
                 Version = args.Version,
-                LastSeen = DateTimeOffset.UtcNow,
+                LastSeen = now,
                 Blocked = args.Blocked,
                 Checked = args.Checked,
             };
+            _seen[Normalize(args.Browser)] = now;
+        }
     }
+
+    private static string Normalize(string? browser) => browser?.Trim().ToLowerInvariant() ?? "";
 
     /// <summary>Settings changed elsewhere; the extension picks them up on its next heartbeat.</summary>
     public void SettingsChanged() { }
@@ -118,14 +152,39 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
         var installer = await _updater.DownloadInstallerAsync(_manifest, ct);
         store.Note($"installing update {AppInfo.Version} -> {_manifest.Version}");
 
+        // Close our own GUI and CLI first. They hold the files being replaced, and the
+        // installer cannot close them itself: it runs in session 0, while they are in
+        // the user's session. Leaving them open used to abort the update silently.
+        CloseOurClients();
+
+        var log = Path.Combine(Path.GetTempPath(), $"Toolize-install-{_manifest.Version}.log");
         // The installer stops the service, swaps the files and starts it again, so this
         // process is replaced mid-flight — hence no wait, and no work after this point.
         Process.Start(new ProcessStartInfo(installer)
         {
-            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+            Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"{log}\"",
             UseShellExecute = true,
         });
         return new ApplyResult(true, $"installing {_manifest.Version}");
+    }
+
+    private void CloseOurClients()
+    {
+        foreach (var name in new[] { "Toolize.Gui", "Toolize.Cli" })
+        {
+            foreach (var process in Process.GetProcessesByName(name))
+            {
+                try
+                {
+                    process.Kill();
+                    process.WaitForExit(3000);
+                }
+                catch (Exception ex)
+                {
+                    log.LogDebug(ex, "could not close {Name}", name);
+                }
+            }
+        }
     }
 }
 
@@ -133,7 +192,7 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
 /// Reports what is and isn't in place. In phase 3 this is mostly informational; from
 /// phase 5 it becomes the checklist that says whether protection is actually enforced.
 /// </summary>
-public sealed class DoctorService(StateStore store, ExtensionTracker extension, LockService locks)
+public sealed class DoctorService(StateStore store, ExtensionTracker extension, LockService locks, EnforcementService enforcement)
 {
     public Task<IReadOnlyList<Check>> RunAsync(CancellationToken ct)
     {
@@ -168,7 +227,10 @@ public sealed class DoctorService(StateStore store, ExtensionTracker extension, 
             Fix: lockState.Enrolled ? null : "Set up a USB key in the Toolize app"));
         if (lockState.Enrolled && !store.HasRecoveryCode)
             checks.Add(new Check("Recovery code", false, "no unused recovery code — losing every key would mean reinstalling"));
-        checks.Add(new Check("Enforcement", false, "not enabled in this version — nothing is locked down yet"));
+        checks.Add(new Check("Enforcement", enforcement.Applied,
+            enforcement.Applied ? enforcement.Summary : "off — the extension can still be removed in the browser",
+            Fix: enforcement.Applied ? null : "Turn on enforcement in the Toolize app"));
+        checks.AddRange(enforcement.Inspect());
         return Task.FromResult<IReadOnlyList<Check>>(checks);
     }
 }

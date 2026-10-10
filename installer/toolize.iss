@@ -3,8 +3,9 @@
 ;   ISCC /DAppVersion=0.3.0 /DExtId=<id> /DUpdateXmlUrl=<url> /DSourceDir=<publish dir> toolize.iss
 ;
 ; What it installs: the service (SYSTEM), the GUI, the CLI, the native messaging host,
-; and the packed extension. What it does NOT install: any lockdown. No forcelist, no
-; watchdog, no incognito restrictions — see CLAUDE.md phase 3.
+; and the packed extension. What it does NOT install: any lockdown. Browser policy
+; (forcelist, incognito off, other extensions blocked) is written by the service when the
+; user turns enforcement on, and removed here on uninstall — see RemoveEnforcementPolicy.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -40,7 +41,12 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=Toolize {#AppVersion}
-CloseApplications=yes
+; Restart Manager can't close a window in the user's session when setup runs from the
+; service in session 0, so don't rely on it — PrepareToInstall below closes our own apps
+; directly. Leaving this on meant a silent update aborted whenever the GUI was open,
+; which is most of the time, since that is where the update button lives.
+CloseApplications=no
+RestartApplications=no
 
 [Tasks]
 Name: "installextension"; Description: "Install the Toolize browser extension automatically"; GroupDescription: "Browser"
@@ -64,15 +70,16 @@ Root: HKLM; Subkey: "SOFTWARE\Google\Chrome\NativeMessagingHosts\com.toolize.hos
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\com.toolize.host"; ValueType: string; ValueData: "{app}\com.toolize.host.json"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\BraveSoftware\Brave\NativeMessagingHosts\com.toolize.host"; ValueType: string; ValueData: "{app}\com.toolize.host.json"; Flags: uninsdeletekey
 
-; Extension install. `normal_installed` puts it in place and keeps it updated, but the
-; user can still disable or remove it — it is a delivery mechanism, not a lock. The
-; forcelist that makes it non-removable belongs to a later phase.
-Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey
-Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "{#UpdateXmlUrl}"; Tasks: installextension
-Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey
-Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "{#UpdateXmlUrl}"; Tasks: installextension
-Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey
-Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#ExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "{#UpdateXmlUrl}"; Tasks: installextension
+; Extension delivery. `normal_installed` puts the Web Store item in place and keeps it
+; updated, while leaving the user free to disable or remove it. Enforcement (the
+; forcelist that makes it non-removable) is written by the SERVICE, not here, because it
+; follows a setting the user turns on and the USB key gates.
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
+Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
+Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
 
 [Run]
 Filename: "{sys}\sc.exe"; Parameters: "create Toolize binPath= ""{app}\Toolize.Service.exe"" start= auto DisplayName= ""Toolize"""; Flags: runhidden
@@ -128,12 +135,79 @@ begin
     WriteNativeHostManifest();
 end;
 
-// An update installs over a running service, so stop it before the files are replaced.
+function HasStoreId(): Boolean;
+begin
+  Result := '{#StoreExtId}' <> '';
+end;
+
+// Uninstalling is a weakening change, so it needs the key. The CLI answers: 0 = allowed,
+// 4 = locked. Anything else (service missing or broken) allows removal — a half-dead
+// install must still be removable, or the only way out would be editing the registry.
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+  Cli: string;
+begin
+  Result := True;
+  Cli := ExpandConstant('{app}\Toolize.Cli.exe');
+  if not FileExists(Cli) then Exit;
+  if not Exec(Cli, 'uninstall-check', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then Exit;
+  if ResultCode = 4 then
+  begin
+    MsgBox('Plug in your Toolize unlock key before uninstalling.', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+// The service writes browser policy while enforcement is on, and uninstalling removes the
+// service — so the policy has to go with it. Left behind, every browser would stay
+// locked down (other extensions blocked, private windows and DevTools off) with nothing
+// on the machine able to turn it off. Runs after the service is stopped, so it can't be
+// put back by a reconcile pass. Mirrors PolicyPlan.AllOwned in Toolize.Core/Enforcement.cs.
+procedure RemoveEnforcementPolicy(const Root: string);
+var
+  Forced: string;
+begin
+  RegDeleteValue(HKLM, Root, 'IncognitoModeAvailability');
+  RegDeleteValue(HKLM, Root, 'InPrivateModeAvailability');
+  RegDeleteValue(HKLM, Root, 'BrowserGuestModeEnabled');
+  RegDeleteValue(HKLM, Root, 'BrowserAddPersonEnabled');
+  RegDeleteValue(HKLM, Root, 'TorDisabled');
+  RegDeleteValue(HKLM, Root, 'DeveloperToolsAvailability');
+  RegDeleteValue(HKLM, Root, 'ExtensionSettings'); // JSON form written by 0.5.x dev builds
+  // Only our own forcelist entry; anything else an admin put there stays.
+  if HasStoreId() and RegQueryStringValue(HKLM, Root + '\ExtensionInstallForcelist', '1', Forced)
+    and (Pos('{#StoreExtId};', Forced) = 1) then
+    RegDeleteValue(HKLM, Root + '\ExtensionInstallForcelist', '1');
+  RegDeleteKeyIfEmpty(HKLM, Root + '\ExtensionInstallForcelist');
+  RegDeleteKeyIncludingSubkeys(HKLM, Root + '\ExtensionSettings\*');
+  if HasStoreId() then
+    RegDeleteKeyIncludingSubkeys(HKLM, Root + '\ExtensionSettings\{#StoreExtId}');
+  RegDeleteKeyIfEmpty(HKLM, Root + '\ExtensionSettings');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    RemoveEnforcementPolicy('SOFTWARE\Policies\Google\Chrome');
+    RemoveEnforcementPolicy('SOFTWARE\Policies\Microsoft\Edge');
+    RemoveEnforcementPolicy('SOFTWARE\Policies\BraveSoftware\Brave');
+  end;
+end;
+
+// An update installs over a running service and, usually, over a running GUI: the
+// update button is in it. Setup may be launched by the service in session 0, where
+// Restart Manager cannot touch the user's windows, so close our own processes here.
+// Only ever our own — nothing else on the machine is disturbed.
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 var
   ResultCode: Integer;
 begin
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop Toolize', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.Gui.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.Cli.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.NativeHost.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
   Result := '';
 end;

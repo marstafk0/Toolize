@@ -14,7 +14,7 @@ The extension downloads each image a second time from inside its own sandbox so 
 
 ## Honest limits
 
-Anyone with admin rights on a machine can defeat software running on it. Nothing is enforced yet either: the extension can still be disabled in the browser, which phase 5 addresses. The goal is to turn "3 clicks" into "deliberate technical effort", not to be unbeatable. The physical key only helps if someone else keeps it, such as an accountability partner, or if it lives somewhere deliberately inconvenient. The software can't enforce that.
+Anyone with admin rights on a machine can defeat software running on it: they can stop the service, delete the browser policy, or uninstall the lot. Enforcement (below) only holds against a *standard* user account, with someone else keeping the admin password. On an account that is itself an administrator, it is friction and tamper-evidence, nothing more. The goal is to turn "3 clicks" into "deliberate technical effort", not to be unbeatable. The physical key only helps if someone else keeps it, such as an accountability partner, or if it lives somewhere deliberately inconvenient. The software can't enforce that.
 
 ## Status
 
@@ -24,7 +24,7 @@ Anyone with admin rights on a machine can defeat software running on it. Nothing
 | 2 | Video, CSS backgrounds, adult-site blocklist | **done** |
 | 3 | Companion app: service, GUI, CLI, signed self-update | **done** |
 | 4 | USB unlock: flash-drive tier, recovery code | **done** |
-| 5 | Enforcement: force-install, policy, watchdog | — |
+| 5 | Enforcement: force-install, policy, watchdog | **in progress** |
 | 6 | Feed toggles (YouTube/X/Reddit/…) + sites catalog | — |
 | 7 | Beyond the browser: DNS filtering, screen classifier | — |
 
@@ -88,6 +88,27 @@ toolize revoke-key <id>         # needs a key present
 toolize recover <code>          # last resort: clears every key, one use only
 ```
 
+## Enforcement
+
+Off by default, because it changes every browser profile on the machine. Turn it on in
+the app (or `toolize set enforce on`). From then on the service writes browser policy
+for Chrome, Edge and Brave and puts it back within 30 seconds if anything edits it:
+
+| Setting | Policy | Default |
+|---|---|---|
+| always | Extension force-installed, so its Remove button is greyed out | — |
+| `blockIncognito` | Private windows, guest mode, new profiles and Brave's Tor windows off | on |
+| `blockDevTools` | Developer tools off, so nothing on a page can be inspected away. Also blocks loading unpacked extensions | on |
+| `blockOtherExtensions` | Every other extension blocked | off |
+| `watchdog` | A browser running without the extension checking in, or a browser that can't run it (Firefox, Opera, …): `off`, `warn`, or `close` it after 2 minutes. Each browser is judged on its own | warn |
+
+Turning any of these down needs the key, like every other weakening change. So does
+uninstalling. Uninstalling removes all of this policy, so the browsers go back to normal.
+
+If the machine is enforced and the extension loses contact with the service for 10
+minutes, it covers every page until the service is back. Stopping the service doesn't
+switch protection off, it switches browsing off.
+
 ## Testing
 
 ```sh
@@ -95,7 +116,7 @@ npm run typecheck
 npm run test:e2e             # headless end-to-end run in Playwright's Chromium
 NO_GPU=1 npm run test:e2e    # same, forcing the GPU-less WASM path
 npm run corpus               # false-positive / false-negative rates per preset on your image corpus
-dotnet test companion/Toolize.Tests   # lock rules: rotation, clone detection, recovery, weakening
+dotnet test companion/Toolize.Tests   # lock rules, weakening, and the browser policy enforcement writes
 npm run serve-test           # manual testing: http://localhost:8787/pages/index.html (load a --dev build)
 ```
 

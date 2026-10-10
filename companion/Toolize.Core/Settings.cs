@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 namespace Toolize.Core;
 
 public enum Preset { Strict, Balanced, Relaxed }
@@ -15,6 +18,23 @@ public sealed record Settings
     public RevealMode Mode { get; init; } = RevealMode.Safe;
     public bool BlockAdultSites { get; init; } = true;
 
+    // ---- enforcement (phase 5). Off by default: enforcement changes the browser for
+    // every profile on the machine, so it is something the user turns on deliberately.
+
+    /// <summary>Write browser policy so the extension can't simply be removed.</summary>
+    public bool Enforce { get; init; }
+    /// <summary>Private windows and fresh profiles are unfiltered browsers, so close them off.</summary>
+    public bool BlockIncognito { get; init; } = true;
+    /// <summary>Block other extensions, which could otherwise undo the filtering.</summary>
+    public bool BlockOtherExtensions { get; init; }
+    /// <summary>
+    /// Turn off developer tools. With them, anything in a page — the blur, the fail-closed
+    /// overlay — is one Delete key away. Also disables loading unpacked extensions.
+    /// </summary>
+    public bool BlockDevTools { get; init; } = true;
+    /// <summary>What to do about a browser running without the extension reporting in.</summary>
+    public Watchdog Watchdog { get; init; } = Watchdog.Warn;
+
     public static Settings Default => new();
 }
 
@@ -31,7 +51,12 @@ public static class SettingsPolicy
         (before.Enabled && !after.Enabled)
         || Strength(after.Preset) < Strength(before.Preset)
         || (before.Mode == RevealMode.Safe && after.Mode == RevealMode.Fast)
-        || (before.BlockAdultSites && !after.BlockAdultSites);
+        || (before.BlockAdultSites && !after.BlockAdultSites)
+        || (before.Enforce && !after.Enforce)
+        || (before.BlockIncognito && !after.BlockIncognito)
+        || (before.BlockOtherExtensions && !after.BlockOtherExtensions)
+        || (before.BlockDevTools && !after.BlockDevTools)
+        || after.Watchdog < before.Watchdog;
 
     private static int Strength(Preset p) => p switch
     {
@@ -49,6 +74,34 @@ public static class SettingsPolicy
         if (Strength(after.Preset) < Strength(before.Preset)) list.Add($"lowering sensitivity to {after.Preset}");
         if (before.Mode == RevealMode.Safe && after.Mode == RevealMode.Fast) list.Add("switching to detect-then-blur");
         if (before.BlockAdultSites && !after.BlockAdultSites) list.Add("turning off adult-site blocking");
+        if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
+        if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");
+        if (before.BlockOtherExtensions && !after.BlockOtherExtensions) list.Add("re-allowing other extensions");
+        if (before.BlockDevTools && !after.BlockDevTools) list.Add("re-allowing developer tools");
+        if (after.Watchdog < before.Watchdog) list.Add($"lowering the watchdog to {after.Watchdog}");
         return list;
+    }
+
+    /// <summary>
+    /// Applies a client's settings on top of the current ones, field by field.
+    ///
+    /// Clients don't all know every setting — the extension has never heard of
+    /// enforcement. Deserialising what they send as a whole record would fill the gaps
+    /// with defaults, so an extension popup toggling the preset would also "turn off"
+    /// enforcement. Only the fields actually present change.
+    /// </summary>
+    public static Settings Overlay(Settings current, JsonElement patch)
+    {
+        if (patch.ValueKind != JsonValueKind.Object) throw new ArgumentException("settings must be an object");
+        var node = JsonSerializer.SerializeToNode(current, Protocol.Json)!.AsObject();
+        foreach (var property in patch.EnumerateObject())
+        {
+            // Match on the serialised name, case-insensitively, and ignore anything
+            // unknown rather than letting it through to the record.
+            var known = node.Select(p => p.Key)
+                .FirstOrDefault(k => string.Equals(k, property.Name, StringComparison.OrdinalIgnoreCase));
+            if (known is not null) node[known] = JsonNode.Parse(property.Value.GetRawText());
+        }
+        return node.Deserialize<Settings>(Protocol.Json)!;
     }
 }

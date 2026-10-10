@@ -77,7 +77,7 @@ public partial class MainWindow : Window
                 : "Images appear immediately and are blurred once flagged. Faster, but content can flash.";
 
             ExtensionText.Text = s.Extension.Connected
-                ? $"Connected (v{s.Extension.Version}) — {s.Extension.Blocked} blocked of {s.Extension.Checked} checked."
+                ? $"Connected (v{s.Extension.Version}{(s.Extension.Browsers.Count > 0 ? $" in {string.Join(", ", s.Extension.Browsers)}" : "")}) — {s.Extension.Blocked} blocked of {s.Extension.Checked} checked."
                 : "Not connected. Open your browser; if this persists, run `toolize doctor`.";
             ExtensionText.Foreground = (Brush)FindResource(s.Extension.Connected ? "Ink" : "Muted");
 
@@ -93,6 +93,19 @@ public partial class MainWindow : Window
                 ? "A dedicated USB key gates every change that weakens protection. Removing it re-locks immediately."
                 : string.Join(", ", s.Keys.Select(k => k.Name)) +
                   (s.HasRecoveryCode ? " · recovery code issued" : " · NO recovery code — losing every key means reinstalling");
+
+            EnforceBox.IsChecked = s.Settings.Enforce;
+            BlockIncognitoBox.IsChecked = s.Settings.BlockIncognito;
+            BlockOtherExtBox.IsChecked = s.Settings.BlockOtherExtensions;
+            BlockDevToolsBox.IsChecked = s.Settings.BlockDevTools;
+            WatchdogOff.IsChecked = s.Settings.Watchdog == Watchdog.Off;
+            WatchdogWarn.IsChecked = s.Settings.Watchdog == Watchdog.Warn;
+            WatchdogClose.IsChecked = s.Settings.Watchdog == Watchdog.Close;
+            EnforceOptions.IsEnabled = s.Settings.Enforce;
+            EnforceHint.Text = s.Settings.Enforce
+                ? $"{s.Enforcement.Summary}. Turning this off needs your key."
+                : "Off. The extension can be disabled or removed in the browser like any other.";
+            WatchdogHint.Text = s.Settings.Enforce ? s.Enforcement.Watchdog : "";
 
             if (s.Update is { Available: true } update)
             {
@@ -135,6 +148,13 @@ public partial class MainWindow : Window
                 : Preset.Balanced,
             Mode = ModeFast.IsChecked == true ? RevealMode.Fast : RevealMode.Safe,
             BlockAdultSites = BlockSitesBox.IsChecked == true,
+            Enforce = EnforceBox.IsChecked == true,
+            BlockIncognito = BlockIncognitoBox.IsChecked == true,
+            BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,
+            BlockDevTools = BlockDevToolsBox.IsChecked == true,
+            Watchdog = WatchdogClose.IsChecked == true ? Watchdog.Close
+                : WatchdogOff.IsChecked == true ? Watchdog.Off
+                : Watchdog.Warn,
         };
 
         try

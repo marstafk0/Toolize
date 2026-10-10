@@ -98,6 +98,16 @@ try
             return response.Ok ? 0 : 4;
         }
 
+        // Used by the uninstaller. Exit 0 = go ahead, 4 = locked, 3 = service not running
+        // (handled by the catch below, which also lets a broken install be removed).
+        case "uninstall-check":
+        {
+            var s3 = (await Ask(Verbs.Status)).DataAs<StatusReport>()!;
+            if (s3.Lock.CanWeaken) return 0;
+            Console.Error.WriteLine("Plug in your Toolize key to uninstall.");
+            return 4;
+        }
+
         case "check-update":
         {
             var info = (await Ask(Verbs.CheckUpdate)).DataAs<UpdateInfo>();
@@ -130,7 +140,7 @@ try
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
             return 2;
     }
     return 0;
@@ -161,7 +171,9 @@ async Task ShowStatusAsync()
                       $"{(s.Settings.Mode == RevealMode.Safe ? "safe reveal" : "detect then blur")}" +
                       $"{(s.Settings.BlockAdultSites ? ", adult sites blocked" : "")}");
     Console.WriteLine($"  lock         {(s.Lock.Enrolled ? s.Lock.KeyPresent ? "unlocked (key present)" : "LOCKED" : "no key enrolled")}");
-    Console.WriteLine($"  extension    {(s.Extension.Connected ? $"connected ({s.Extension.Version}), {s.Extension.Blocked} blocked / {s.Extension.Checked} checked" : "not connected")}");
+    Console.WriteLine($"  extension    {(s.Extension.Connected ? $"connected ({s.Extension.Version}{(s.Extension.Browsers.Count > 0 ? $" in {string.Join(", ", s.Extension.Browsers)}" : "")}), {s.Extension.Blocked} blocked / {s.Extension.Checked} checked" : "not connected")}");
+    Console.WriteLine($"  enforcement  {(s.Enforcement.Applied ? s.Enforcement.Summary : "off — the extension can still be removed in the browser")}");
+    if (s.Enforcement.Applied) Console.WriteLine($"  watchdog     {s.Enforcement.Watchdog}");
     if (s.Update is { Available: true }) Console.WriteLine($"  update       {s.Update.Version} available — run `toolize update`");
 }
 
@@ -169,7 +181,13 @@ async Task SetAsync(string[] pair)
 {
     if (pair.Length != 2)
     {
-        Console.Error.WriteLine("usage: toolize set <enabled|preset|mode|blockAdultSites> <value>");
+        Console.Error.WriteLine("""
+            usage: toolize set <setting> <value>
+              enabled | blockAdultSites | enforce | blockIncognito | blockOtherExtensions | blockDevTools   on|off
+              preset   strict|balanced|relaxed
+              mode     safe|fast
+              watchdog off|warn|close
+            """);
         return;
     }
     var current = (await Ask(Verbs.GetSettings)).DataAs<Settings>()!;
@@ -180,6 +198,11 @@ async Task SetAsync(string[] pair)
         "preset" => current with { Preset = Enum.Parse<Preset>(value, true) },
         "mode" => current with { Mode = Enum.Parse<RevealMode>(value, true) },
         "blockadultsites" => current with { BlockAdultSites = ParseBool(value) },
+        "enforce" => current with { Enforce = ParseBool(value) },
+        "blockincognito" => current with { BlockIncognito = ParseBool(value) },
+        "blockotherextensions" => current with { BlockOtherExtensions = ParseBool(value) },
+        "blockdevtools" => current with { BlockDevTools = ParseBool(value) },
+        "watchdog" => current with { Watchdog = Enum.Parse<Watchdog>(value, true) },
         _ => throw new ArgumentException($"unknown setting '{pair[0]}'"),
     };
 

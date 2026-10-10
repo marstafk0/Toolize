@@ -1,5 +1,6 @@
 import { loadSettings, onSettingsChanged } from '../shared/settings';
 import { BlurEngine } from './engine';
+import { hideOverlay, isStale, showOverlay } from './failclosed';
 
 /**
  * Isolated-world entry (document_start, all frames). blur.css is already applied by
@@ -18,4 +19,16 @@ if (!g[INSTANCE]?.isAlive()) {
   engine.start();
   loadSettings().then((s) => engine.setSettings(s));
   onSettingsChanged((s) => engine.setSettings(s));
+
+  // Fail closed: if this machine is enforced and the desktop app has gone quiet, cover
+  // the page rather than pretending everything is fine.
+  const checkEnforcement = async (): Promise<void> => {
+    const cache = (await chrome.storage.local.get('enforcement')).enforcement as
+      | { enforced: boolean; lastSeen: number }
+      | undefined;
+    if (cache && isStale(cache)) showOverlay();
+    else hideOverlay();
+  };
+  void checkEnforcement();
+  setInterval(() => void checkEnforcement(), 60_000);
 }

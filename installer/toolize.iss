@@ -49,7 +49,6 @@ CloseApplications=no
 RestartApplications=no
 
 [Tasks]
-Name: "installextension"; Description: "Install the Toolize browser extension automatically"; GroupDescription: "Browser"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
@@ -70,17 +69,6 @@ Root: HKLM; Subkey: "SOFTWARE\Google\Chrome\NativeMessagingHosts\com.toolize.hos
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Edge\NativeMessagingHosts\com.toolize.host"; ValueType: string; ValueData: "{app}\com.toolize.host.json"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\BraveSoftware\Brave\NativeMessagingHosts\com.toolize.host"; ValueType: string; ValueData: "{app}\com.toolize.host.json"; Flags: uninsdeletekey
 
-; Extension delivery. `normal_installed` puts the Web Store item in place and keeps it
-; updated, while leaving the user free to disable or remove it. Enforcement (the
-; forcelist that makes it non-removable) is written by the SERVICE, not here, because it
-; follows a setting the user turns on and the USB key gates.
-Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
-Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
-Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
-Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
-Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "installation_mode"; ValueData: "normal_installed"; Tasks: installextension; Flags: uninsdeletekey; Check: HasStoreId
-Root: HKLM; Subkey: "SOFTWARE\Policies\BraveSoftware\Brave\ExtensionSettings\{#StoreExtId}"; ValueType: string; ValueName: "update_url"; ValueData: "https://clients2.google.com/service/update2/crx"; Tasks: installextension; Check: HasStoreId
-
 [Run]
 Filename: "{sys}\sc.exe"; Parameters: "create Toolize binPath= ""{app}\Toolize.Service.exe"" start= auto DisplayName= ""Toolize"""; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "description Toolize ""Keeps Toolize's settings and talks to the browser extension."""; Flags: runhidden
@@ -88,6 +76,11 @@ Filename: "{sys}\sc.exe"; Parameters: "description Toolize ""Keeps Toolize's set
 Filename: "{sys}\sc.exe"; Parameters: "failure Toolize reset= 86400 actions= restart/5000/restart/5000/restart/30000"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "start Toolize"; Flags: runhidden
 Filename: "{app}\Toolize.Gui.exe"; Description: "Open Toolize"; Flags: postinstall nowait skipifsilent
+; The extension is an ordinary Web Store install: the user adds it, and can remove it.
+; Only enforcement (written by the service, gated by the key) locks it in place. A
+; policy-based install here would lock it too — normal_installed hides Remove — which
+; made "enforcement off" a lie.
+Filename: "https://chromewebstore.google.com/detail/{#StoreExtId}"; Description: "Add the Toolize extension to your browser"; Flags: postinstall shellexec nowait skipifsilent; Check: HasStoreId
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop Toolize"; Flags: runhidden; RunOnceId: "StopService"

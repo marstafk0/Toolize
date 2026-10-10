@@ -31,11 +31,17 @@ public sealed class PolicyPlanTests
     [Fact]
     public void Our_extension_settings_entry_says_force_installed_too()
     {
-        // ExtensionSettings beats the forcelist for an id it names, and the installer
-        // names ours normal_installed. Left alone, that would make the forcelist moot.
+        // ExtensionSettings beats the forcelist for an id it names, and older installers
+        // named ours normal_installed. Left alone, that would make the forcelist moot.
         var mode = Assert.Single(Plan(Enforcing).Where(v => v.SubKey == $@"ExtensionSettings\{Id}" && v.Name == "installation_mode"));
         Assert.Equal("force_installed", mode.Value);
-        Assert.Equal("normal_installed", mode.Released);
+    }
+
+    [Fact]
+    public void Turning_enforcement_off_leaves_nothing_that_blocks_removal()
+    {
+        // normal_installed also hides Remove, so releasing must delete, never revert to it.
+        Assert.All(PolicyPlan.AllOwned(Id), v => Assert.Null(v.Released));
     }
 
     [Fact]

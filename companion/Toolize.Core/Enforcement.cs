@@ -15,9 +15,7 @@ public enum Watchdog
 /// One registry value the enforcement layer owns.
 ///
 /// <paramref name="Released"/> is what the value goes back to when enforcement no longer
-/// wants it. Most values are simply deleted (null), but a few are shared with the
-/// installer — the extension's own ExtensionSettings entry exists before enforcement and
-/// must outlive it, just without the lock.
+/// wants it; null deletes it. Everything enforcement writes is currently deleted.
 /// </summary>
 public sealed record PolicyValue(string SubKey, string Name, object Value, object? Released = null)
 {
@@ -66,9 +64,9 @@ public static class PolicyPlan
             // Force-installed: the Remove button is greyed out and the extension comes
             // back if it is somehow removed.
             new("ExtensionInstallForcelist", "1", $"{extensionId};{StoreUpdateUrl}"),
-            // ExtensionSettings overrides the forcelist for an id it names, and the
-            // installer names ours as normal_installed — which would quietly undo the
-            // forcelist. So the per-id entry has to say force_installed too.
+            // ExtensionSettings overrides the forcelist for any id it names. Installs from
+            // before 0.5.4 name ours normal_installed, which would quietly undo the
+            // forcelist, so the per-id entry has to say force_installed too.
             ForceInstalled(extensionId),
             UpdateUrl(extensionId),
         };
@@ -103,11 +101,16 @@ public static class PolicyPlan
         return values;
     }
 
+    // Released by deleting, not by reverting to normal_installed: that mode hides the
+    // Remove button too, so "enforcement off" would still mean "can't remove it". This
+    // also clears the normal_installed entry installers before 0.5.4 wrote. Note that
+    // browsers uninstall an extension when its force-install is lifted; turning
+    // enforcement off can therefore remove it, to be re-added from the store.
     private static PolicyValue ForceInstalled(string id) =>
-        new(ExtensionKey(id), "installation_mode", "force_installed", Released: "normal_installed");
+        new(ExtensionKey(id), "installation_mode", "force_installed");
 
     private static PolicyValue UpdateUrl(string id) =>
-        new(ExtensionKey(id), "update_url", StoreUpdateUrl, Released: StoreUpdateUrl);
+        new(ExtensionKey(id), "update_url", StoreUpdateUrl);
 
     /// <summary>Every value this layer may ever write, so unenforcing can clean up fully.</summary>
     public static IReadOnlyList<PolicyValue> AllOwned(string extensionId) =>

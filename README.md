@@ -105,6 +105,11 @@ for Chrome, Edge and Brave and puts it back within 30 seconds if anything edits 
 Turning any of these down needs the key, like every other weakening change. So does
 uninstalling. Uninstalling removes all of this policy, so the browsers go back to normal.
 
+With enforcement off the extension is an ordinary Web Store install that you add (setup
+offers the link) and can remove. Turning enforcement off lifts the force-install, and
+browsers uninstall a force-installed extension when that happens, so add it again from
+the store if you want to keep it.
+
 If the machine is enforced and the extension loses contact with the service for 10
 minutes, it covers every page until the service is back. Stopping the service doesn't
 switch protection off, it switches browsing off.

@@ -103,7 +103,7 @@ public partial class MainWindow : Window
             WatchdogClose.IsChecked = s.Settings.Watchdog == Watchdog.Close;
             EnforceOptions.IsEnabled = s.Settings.Enforce;
             EnforceHint.Text = s.Settings.Enforce
-                ? $"{s.Enforcement.Summary}. Turning this off needs your key."
+                ? $"{s.Enforcement.Summary}. Turning this off needs your key, and the browser may remove the extension — add it again from the Web Store if you want it back."
                 : "Off. The extension can be disabled or removed in the browser like any other.";
             WatchdogHint.Text = s.Settings.Enforce ? s.Enforcement.Watchdog : "";
 

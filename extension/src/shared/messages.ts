@@ -59,7 +59,22 @@ export interface EngineInfo {
   warnings: string[];
   /** Background shader warm-up still running. */
   warming: boolean;
+  /** Where the time goes: average ms per job for each stage, and average batch size. */
+  perf?: PipelinePerf;
   error?: string;
+}
+
+export interface PipelinePerf {
+  jobs: number;
+  fetchMs: number;
+  decodeMs: number;
+  cropMs: number;
+  /** From submitting crops to getting scores back: queueing behind other batches + inference. */
+  inferWaitMs: number;
+  batches: number;
+  avgBatch: number;
+  /** Model time per batch call. */
+  batchMs: number;
 }
 
 export interface GetEngineInfoRequest {

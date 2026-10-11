@@ -18,6 +18,8 @@ interface Track {
   key: string;
   refining?: boolean;
   attempts?: number;
+  /** Dev timing: when it entered the queue. */
+  queuedAt?: number;
 }
 
 /**
@@ -38,6 +40,10 @@ export class ImageWatcher {
         this.stamper.set(el, 'skip');
         return false;
       }
+      // Still loading and not laid out yet (no size until it decodes): its position is
+      // not where it will end up, so "near the viewport" means nothing yet. Wait for
+      // the load event, which queues it again.
+      if (!(el as HTMLImageElement).complete && (rect.width === 0 || rect.height === 0)) return false;
       return true;
     },
   );
@@ -92,13 +98,25 @@ export class ImageWatcher {
       this.queue.drop(img);
     }
 
+    // Size checks come before any cached verdict: an image classified while it was still
+    // loading turns out to be an icon once decoded, and icons are never judged.
+    if (img.complete) {
+      if (img.naturalWidth === 0) return this.stamper.set(img, 'skip'); // broken: nothing to show
+      if (isTiny(img)) return this.stamper.set(img, 'skip');
+    }
+
     const known = this.client.cached(t.key);
     if (known) return this.apply(img, t, known);
 
     this.stamper.set(img, this.pendingState());
-    if (!img.complete) return; // the load/error event brings us back
-    if (img.naturalWidth === 0) return this.stamper.set(img, 'skip'); // broken: nothing to show
-    if (isTiny(img)) return this.stamper.set(img, 'skip');
+    if (!img.complete && !fetchableEarly(img)) {
+      return; // the load/error event brings us back
+    }
+    // Still loading but the URL is certain: classify alongside the page's own download
+    // instead of after it. Our fetch is the slowest step on real sites, so starting it
+    // early takes it off the time the image sits blurred. The verdict is for this exact
+    // URL, so applying it before the page has painted the image is safe.
+    if (__DEV__) t.queuedAt ??= performance.now();
     this.queue.observe(img);
   }
 
@@ -106,11 +124,16 @@ export class ImageWatcher {
     const t = this.tracks.get(img);
     if (!t) return;
     try {
+      const started = performance.now();
       const r = await this.request(img, t, false);
+      if (__DEV__ && t.queuedAt !== undefined)
+        console.debug(`[toolize-timing] queue ${Math.round(started - t.queuedAt)} rtt ${Math.round(performance.now() - started)}`);
       if (this.current(img, t)) this.apply(img, t, r);
     } catch (e) {
       // A request that fails after protection was switched off must not re-stamp it.
       if (!this.current(img, t)) return;
+      // Started early and the fallback needs the decoded image: the load event retries.
+      if (!img.complete) return;
       this.stamper.set(img, 'error');
       if (__DEV__) console.warn('[toolize] image classify failed', t.src.slice(0, 120), e);
       // Most failures are transient: the service worker or classifier restarting, a
@@ -174,4 +197,16 @@ function isTiny(img: HTMLImageElement): boolean {
   const w = Number(img.getAttribute('width'));
   const h = Number(img.getAttribute('height'));
   return w > 0 && h > 0 && w < MIN_SIDE && h < MIN_SIDE;
+}
+
+/**
+ * Whether a still-loading image's URL is already the one that will be shown. With
+ * srcset or <picture> the browser picks a candidate at load time, possibly a different
+ * picture altogether (art direction), so those wait for the load event. blob: needs the
+ * decoded element.
+ */
+function fetchableEarly(img: HTMLImageElement): boolean {
+  const src = img.getAttribute('src');
+  if (!src || img.hasAttribute('srcset') || img.parentElement?.localName === 'picture') return false;
+  return /^https?:/.test(img.src);
 }

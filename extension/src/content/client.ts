@@ -56,14 +56,38 @@ export class ClassifyClient {
       this.orphaned = true;
       throw new Error('extension context invalidated');
     }
-    const msg: ClassifyRequest = { target: 'background', kind: 'classify', ...req };
-    const res: ClassifyResponse = await chrome.runtime.sendMessage(msg);
+    const res = await this.route(req);
     if (!res.ok) {
       const err = new Error(res.error);
       (err as Error & { fetchFailed?: boolean }).fetchFailed = res.fetchFailed;
       throw err;
     }
     return res.result;
+  }
+
+  /** False once a direct request found no classifier listening; reset when one succeeds. */
+  private direct = true;
+
+  /**
+   * Straight to the offscreen classifier when it's up. Relaying through the service
+   * worker doubles the hops and, worse, wakes the worker whenever Chrome has put it to
+   * sleep, which it does after 30s idle. The worker path stays as the fallback, since
+   * it's the one that creates the classifier document when there isn't one.
+   */
+  private async route(req: Omit<ClassifyRequest, 'target' | 'kind'>): Promise<ClassifyResponse> {
+    if (this.direct) {
+      try {
+        const res: ClassifyResponse | undefined = await chrome.runtime.sendMessage({ target: 'offscreen', kind: 'classify', ...req } satisfies ClassifyRequest);
+        if (res) return res;
+      } catch {
+        /* no offscreen document yet */
+      }
+      this.direct = false;
+    }
+    const res: ClassifyResponse = await chrome.runtime.sendMessage({ target: 'background', kind: 'classify', ...req } satisfies ClassifyRequest);
+    // The worker has (re)created the classifier; go direct again from now on.
+    this.direct = true;
+    return res;
   }
 }
 

@@ -17,7 +17,10 @@ const pipeline = new ClassifyPipeline(classifier);
 let loadError: string | undefined;
 let loadMs = -1;
 const t0 = performance.now();
-const ready = classifier.load().then(() => void (loadMs = Math.round(performance.now() - t0))).catch((e) => {
+const ready = classifier.load().then(() => {
+  loadMs = Math.round(performance.now() - t0);
+  pipeline.useGpu(classifier.backend === 'webgl');
+}).catch((e) => {
   loadError = String(e?.message ?? e);
   console.error('[toolize] model load failed', e);
   throw e;
@@ -52,6 +55,7 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
       cacheSize: pipeline.cacheSize,
       warnings: classifier.warnings,
       warming: classifier.warming,
+      perf: pipeline.perf,
       error: loadError,
     };
     sendResponse(info);

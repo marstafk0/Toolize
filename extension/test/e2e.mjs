@@ -81,9 +81,11 @@ try {
   const isPending = (i) => i.state == null || i.state === 'pending';
   // CSS backgrounds are detect-then-hide: they have no pending state to wait on.
   const media = (list) => list.filter((i) => i.kind !== 'background');
-  // Layout shifts as images load, so keep clear of the exact margin edge.
+  // Layout shifts as images load, so keep clear of the exact margin edge. An image
+  // with a CSS size is queued while the ones above it are still loading (and still
+  // short), so it can be judged from a position a few hundred px higher than its final one.
   const NEAR = 900 + 1200 - 100;
-  const FAR = 900 + 1200 + 250;
+  const FAR = 900 + 1200 + 600;
   const settled = await waitFor(async () => {
     const list = await collect();
     return list.length > 20 && media(list).filter((i) => i.docTop < NEAR).every((i) => !isPending(i)) ? list : null;

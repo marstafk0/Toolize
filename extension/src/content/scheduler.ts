@@ -1,7 +1,11 @@
 /** Start work this far ahead of the viewport so reveals are ready on arrival. */
 const PREFETCH_MARGIN = '1200px 600px';
-/** Requests in flight per frame; the offscreen doc batches across them. */
-const MAX_INFLIGHT = 8;
+/**
+ * Requests in flight per frame; the offscreen doc batches across them. Each mostly
+ * waits on a network refetch, so a busy page (an image search, a feed) would otherwise
+ * queue here before its requests even start.
+ */
+const MAX_INFLIGHT = 16;
 
 /**
  * Runs work for elements only once they come near the viewport, visible ones first.

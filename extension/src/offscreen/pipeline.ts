@@ -1,5 +1,5 @@
 import { maxScores, type ClassifyResult, type Scores } from '../shared/policy';
-import type { ImageSource } from '../shared/messages';
+import type { ImageSource, PipelinePerf } from '../shared/messages';
 import type { ImageClassifier } from './classifier';
 import { cropToImageData, decodeBlob, fetchImageBlob, tileRects } from './image-loader';
 import { loadVideoFrames } from './video-loader';
@@ -15,8 +15,14 @@ export interface ClassifyJob {
 
 const CACHE_MAX = 5000;
 const MAX_BATCH = 16;
-/** Parallel fetch+decode jobs. Inference itself is serialized through the batcher. */
-const MAX_CONCURRENT_JOBS = 6;
+/**
+ * Jobs in flight. On a GPU they mostly wait on the network (the refetch is the slowest
+ * step on real sites), so this is generous. Without one, inference shares the thread
+ * with cropping and extra jobs only compete with it, so it stays low.
+ */
+const MAX_CONCURRENT_JOBS = { gpu: 16, cpu: 6 };
+/** Decodes + crops at once. More than this and they slow each other down. */
+const MAX_CONCURRENT_DECODES = 4;
 
 /**
  * fetch/decode -> crop -> batched inference, with an LRU result cache keyed by URL hash
@@ -26,12 +32,34 @@ export class ClassifyPipeline {
   private cache = new Map<string, ClassifyResult>();
   private inflight = new Map<string, Promise<ClassifyResult>>();
   private batcher: Batcher;
-  private jobSlots = new Semaphore(MAX_CONCURRENT_JOBS);
+  private jobSlots = new Semaphore(MAX_CONCURRENT_JOBS.cpu);
+  private decodeSlots = new Semaphore(MAX_CONCURRENT_DECODES);
   classified = 0;
   private totalMs = 0;
+  private stage = { jobs: 0, fetch: 0, decode: 0, crop: 0, infer: 0 };
+
+  get perf(): PipelinePerf {
+    const n = this.stage.jobs || 1;
+    const b = this.batcher.stats;
+    return {
+      jobs: this.stage.jobs,
+      fetchMs: Math.round(this.stage.fetch / n),
+      decodeMs: Math.round(this.stage.decode / n),
+      cropMs: Math.round(this.stage.crop / n),
+      inferWaitMs: Math.round(this.stage.infer / n),
+      batches: b.batches,
+      avgBatch: b.batches ? +(b.items / b.batches).toFixed(1) : 0,
+      batchMs: b.batches ? Math.round(b.ms / b.batches) : 0,
+    };
+  }
 
   constructor(private readonly classifier: ImageClassifier) {
     this.batcher = new Batcher(classifier);
+  }
+
+  /** Called once the backend is known. */
+  useGpu(gpu: boolean): void {
+    this.jobSlots.resize(gpu ? MAX_CONCURRENT_JOBS.gpu : MAX_CONCURRENT_JOBS.cpu);
   }
 
   get cacheSize(): number {
@@ -71,10 +99,25 @@ export class ClassifyPipeline {
     if (__DEV__ && devFailOnce(req)) throw new Error('test: transient failure');
     const t0 = performance.now();
     const { source, refine } = req;
-    const frames =
-      'videoUrl' in source
-        ? await loadVideoFrames(source.videoUrl)
-        : [await decodeBlob('url' in source ? await fetchImageBlob(source.url) : await (await fetch(source.dataUrl)).blob())];
+    let t = performance.now();
+    const lap = () => {
+      const now = performance.now();
+      const ms = now - t;
+      t = now;
+      return ms;
+    };
+    let frames;
+    let fetchMs = 0;
+    let decodeMs = 0;
+    if ('videoUrl' in source) {
+      frames = await loadVideoFrames(source.videoUrl);
+      fetchMs = lap();
+    } else {
+      const blob = 'url' in source ? await fetchImageBlob(source.url) : await (await fetch(source.dataUrl)).blob();
+      fetchMs = lap();
+      frames = [await this.decodeSlots.run(() => decodeBlob(blob))];
+      decodeMs = lap();
+    }
     try {
       const size = this.classifier.inputSize;
       // One "whole" input per frame (a single image is just a one-frame video), plus
@@ -89,7 +132,14 @@ export class ClassifyPipeline {
         tileCount += rects.length;
       }
 
+      const cropMs = lap();
       const scores = await this.batcher.submit(inputs);
+      const s = this.stage;
+      s.jobs++;
+      s.fetch += fetchMs;
+      s.decode += decodeMs;
+      s.crop += cropMs;
+      s.infer += lap();
       const wholeCount = prior ? 0 : frames.length;
       let whole = prior ? prior.whole : maxScores(scores.slice(0, wholeCount));
       let tileMax = tileCount ? maxScores(scores.slice(wholeCount)) : undefined;
@@ -118,6 +168,7 @@ export class ClassifyPipeline {
 class Batcher {
   private queue: { input: ImageData; resolve: (s: Scores) => void; reject: (e: unknown) => void }[] = [];
   private draining = false;
+  readonly stats = { batches: 0, items: 0, ms: 0 };
 
   constructor(private readonly classifier: ImageClassifier) {}
 
@@ -136,7 +187,11 @@ class Batcher {
     while (this.queue.length) {
       const items = this.queue.splice(0, MAX_BATCH);
       try {
+        const t0 = performance.now();
         const scores = await this.classifier.classifyBatch(items.map((i) => i.input));
+        this.stats.batches++;
+        this.stats.items += items.length;
+        this.stats.ms += performance.now() - t0;
         items.forEach((it, i) => it.resolve(scores[i]));
       } catch (e) {
         items.forEach((it) => it.reject(e));
@@ -161,7 +216,19 @@ function postTask(fn: () => void): void {
 
 class Semaphore {
   private waiters: (() => void)[] = [];
-  constructor(private free: number) {}
+  private limit: number;
+  constructor(private free: number) {
+    this.limit = free;
+  }
+
+  resize(limit: number): void {
+    this.free += limit - this.limit;
+    this.limit = limit;
+    while (this.free > 0 && this.waiters.length) {
+      this.free--;
+      this.waiters.shift()!();
+    }
+  }
 
   async run<T>(fn: () => Promise<T>): Promise<T> {
     if (this.free > 0) this.free--;

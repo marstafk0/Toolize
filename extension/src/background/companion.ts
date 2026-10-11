@@ -125,6 +125,23 @@ function send(verb: string, args?: unknown): Promise<PipeResponse> {
 
 export const isConnected = (): boolean => connected;
 
+/**
+ * Asks the desktop app to allow a weakening change made on the extension's side. With
+ * no app installed there is no key to ask for, as with every other setting. With the
+ * app installed but not answering, the answer is no: stopping the service must not be
+ * the way to unlock anything.
+ */
+export async function authorizeWeakening(what: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await send('authorize-weakening', { what });
+    return res.ok ? { ok: true } : { ok: false, error: res.error ?? 'the Toolize app refused' };
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    if (/not installed|not found|forbidden/i.test(msg)) return { ok: true };
+    return { ok: false, error: `the Toolize app didn't answer (${msg})` };
+  }
+}
+
 /** Handshake: announce ourselves, adopt the app's settings as authoritative. */
 export async function hello(): Promise<Settings | null> {
   try {

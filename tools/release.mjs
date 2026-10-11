@@ -49,6 +49,11 @@ console.log(`\nToolize ${version} (${channel}) -> ${tag}\n`);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
+// Every release ships the current adult-domain list (the extension also refreshes it
+// daily, but a fresh baseline keeps that daily difference small).
+console.log('refreshing blocklist…');
+run(process.execPath, [join(root, 'extension/scripts/blocklist.mjs')], join(root, 'extension'));
+
 console.log('building extension…');
 run(process.execPath, [join(root, 'extension/build.mjs')], join(root, 'extension'));
 const crx = packCrx(join(root, 'extension/dist'), join(out, names.crx));

@@ -41,6 +41,15 @@ export interface ClassifyResult {
 
 export type Decision = 'clean' | 'blocked' | 'refine';
 
+/**
+ * Explicit rather than merely revealing: porn or hentai over threshold. Used to learn a
+ * whole site from its images; "sexy" alone (swimwear, lingerie shops) never counts.
+ */
+export function isExplicit(r: ClassifyResult, t: Thresholds): boolean {
+  const over = (s: Scores) => s.porn > t.porn || s.hentai > t.hentai;
+  return over(r.whole) || (!!r.tiles && isBorderline(r.whole, t) && over(r.tiles));
+}
+
 export function isFlagged(s: Scores, t: Thresholds): boolean {
   return s.porn > t.porn || s.hentai > t.hentai || s.sexy > t.sexy;
 }

@@ -102,7 +102,33 @@ export interface CompanionState {
   installed: boolean;
 }
 
+/** A page decided its own site should be blocked (explicit images, or an adult label). */
+export interface LearnSiteRequest {
+  target: 'background';
+  kind: 'learnSite';
+  reason: 'images' | 'label';
+}
+
+export interface LearnSiteResult {
+  /** Where to send the frame now; null when this site is never learned. */
+  blockedUrl: string | null;
+}
+
+/** From the blocked page: undo a learned block (needs the key). */
+export interface UnlearnSiteRequest {
+  target: 'background';
+  kind: 'unlearnSite';
+  site: string;
+}
+
+export interface UnlearnSiteResult {
+  ok: boolean;
+  error?: string;
+}
+
 export type Message =
+  | LearnSiteRequest
+  | UnlearnSiteRequest
   | ClassifyRequest
   | StatsReport
   | GetTabStatsRequest

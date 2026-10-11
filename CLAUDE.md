@@ -54,11 +54,22 @@ about what each tier actually guarantees.
   hides detail. Expect real tuning time here: false positives (beaches, medical, art,
   skin-tone crops) are the #1 quality risk of the whole project.
 - **Site blocking:** `declarativeNetRequest` blocks known adult domains before anything
-  loads — cheaper and more reliable than classifying their images. Seed domain list
-  plus a two-tier hostname heuristic: strong words (porn, xxx, hentai) match anywhere
-  in the hostname, weak words (sex, anal, nude) only as a whole label, so
-  `sussex.ac.uk` and `analytics.google.com` are unaffected. The classifier is the
-  backstop for everything the list misses.
+  loads — cheaper and more reliable than classifying their images. Four layers:
+  - **OISD NSFW list** (~470k domains, GPL-3.0, chosen over Block List Project for far
+    fewer false blocks) merged with our seed list, baked into the static ruleset as one
+    `requestDomains` rule (~9MB). Releases refresh it; the extension refetches it daily
+    and applies the difference as dynamic rules (new domains blocked, dropped ones
+    allowed), refusing a list < 80% of the shipped size or one removing > 5%.
+    `NEVER_BLOCK` (sites.ts) can never be blocked by a list, exact match only.
+  - **Hostname heuristic:** strong words (porn, xxx, hentai) match anywhere, weak words
+    (sex, anal, nude) only as a whole label, so `sussex.ac.uk` is unaffected.
+  - **Self-labelled pages:** the RTA label or `<meta name="rating" content="adult">`
+    blocks the page and learns the site.
+  - **Learned sites:** 3 distinct *explicit* (porn/hentai, not "sexy") images on one
+    page block the whole site from then on, except `NO_LEARN` platforms (UGC, search)
+    and local addresses. Unblocking from the blocked page is a weakening change
+    (`authorize-weakening` verb). The learned list stays in the browser; the service
+    only logs that a site was unblocked, never which.
 - **DRM video is left alone.** An `encrypted` (EME) event means the frames are
   unreadable by anyone, us included. A site shipping Widevine is a streaming service,
   and real adult sites are blocked at the network layer before this matters.
@@ -177,8 +188,9 @@ Be precise about this, because "uncopyable USB" is a real distinction:
   a release artifact.
 - **Channels:** `stable` and `dev`, distinguished by tag prefix, each with its own
   `update.json`. The laptop sits on `dev`.
-- **Network stance:** update checks are the *only* outbound traffic, and they carry
-  version and channel, nothing else. See *Privacy*.
+- **Network stance:** two kinds of outbound traffic, both carrying nothing about the
+  user: the app's update check (version and channel) and the extension's daily
+  download of the public adult-domain list. See *Privacy*.
 - **Signing keys never live in the repo.** The CRX packing key and the Ed25519 release
   key live outside the working tree; the repo holds only public keys. Losing the CRX
   key changes the extension ID, which breaks the forcelist entry on installed machines.
@@ -188,9 +200,11 @@ Be precise about this, because "uncopyable USB" is a real distinction:
 - **Content never leaves the machine.** Image/video analysis, unlock verification, and
   settings are 100% local. No URLs, no screenshots, no browsing data, no telemetry.
   Logs record *that* something was blocked, never what was viewed.
-- **The single exception is the update check**, which sends a version and a channel
-  name to the release host and nothing else. It is the only reason the product touches
-  the network, it can be turned off, and the README states this plainly.
+- **The exceptions are the update check and the blocklist refresh.** The update check
+  sends a version and a channel name to the release host and nothing else. The
+  extension downloads the public OISD NSFW list once a day (a plain GET, no
+  parameters; decided by the user to keep blocking current). Nothing else touches the
+  network, and the README states this plainly.
 - A status-only "still armed" heartbeat to an accountability partner is a possible
   future opt-in. It would carry no content. Not built, not assumed.
 

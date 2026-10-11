@@ -4,12 +4,15 @@ import type {
   CompanionState,
   EngineInfo,
   GetEngineInfoRequest,
+  LearnSiteResult,
   Message,
   SetSettingsResult,
   TabStats,
+  UnlearnSiteResult,
 } from '../shared/messages';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../shared/settings';
 import { hello, isConnected, requestSettings, startHeartbeat } from './companion';
+import { learn, scheduleListUpdates, syncDynamicRules, unlearn, updateList } from './blocklist';
 
 /**
  * Service worker: routes classify requests to the offscreen document (creating it on
@@ -145,6 +148,22 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
       sendResponse({ installed: isConnected() } satisfies CompanionState);
       return false;
 
+    case 'learnSite':
+      // The frame's own URL as Chrome reports it, not anything the page could claim.
+      learn(sender.url ?? '', msg.reason).then(
+        (blockedUrl) => sendResponse({ blockedUrl } satisfies LearnSiteResult),
+        () => sendResponse({ blockedUrl: null } satisfies LearnSiteResult),
+      );
+      return true;
+
+    case 'unlearnSite':
+      // Only our own blocked page may ask, and it still needs the key.
+      if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('blocked/'))) return false;
+      unlearn(msg.site).then(sendResponse, (e) =>
+        sendResponse({ ok: false, error: String(e?.message ?? e) } satisfies UnlearnSiteResult),
+      );
+      return true;
+
     case 'engineInfo':
       sendToOffscreen<EngineInfo>(msg).then(sendResponse, (e) =>
         sendResponse({
@@ -173,8 +192,14 @@ async function syncRulesets(): Promise<void> {
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.settings) void syncRulesets();
+  if (area === 'local' && changes.settings) {
+    void syncRulesets();
+    void syncDynamicRules();
+  }
 });
+
+scheduleListUpdates();
+if (__DEV__) (self as unknown as Record<string, unknown>).__tz = { updateList, learn, syncDynamicRules };
 
 // ---------------------------------------------------------------- install / startup
 
@@ -182,6 +207,11 @@ chrome.runtime.onInstalled.addListener(async () => {
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings) await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
   await syncRulesets();
+  // A new release ships a newer static list; the stored difference was against the old
+  // one, so drop it and fetch afresh rather than apply a stale delta.
+  await chrome.storage.local.remove('blocklistUpdate');
+  await syncDynamicRules();
+  void updateList().catch((e) => console.warn('[toolize]', e?.message ?? e));
 
   // Pages open before install/update have no (or an orphaned) content script.
   // Inject into them so protection covers existing tabs immediately.

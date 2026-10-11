@@ -8,7 +8,9 @@ An accountability and focus tool for Windows. It is built from three parts:
 
 ## Privacy
 
-**Everything runs on your machine.** Image analysis uses a model bundled inside the extension. The extension sends no images, URLs, screenshots or browsing data anywhere. There is no backend, account or telemetry, and it has no network dependency.
+**Everything runs on your machine.** Image analysis uses a model bundled inside the extension. The extension sends no images, URLs, screenshots or browsing data anywhere. There is no backend, account or telemetry.
+
+It makes two kinds of network request of its own, neither carrying anything about you: the desktop app checks GitHub for updates, and the extension downloads the public adult-site list ([OISD NSFW](https://oisd.nl), GPL-3.0) once a day to keep blocking current. Sites the extension learns to block (see below) are remembered in the browser only.
 
 The extension downloads each image a second time from inside its own sandbox so it can read the pixels. That request goes to the site that already served the image. Nothing is sent anywhere else.
 
@@ -52,7 +54,11 @@ To load it, open `chrome://extensions`, turn on Developer mode, click **Load unp
 - **Live streams** are blurred while flagged but never paused, since pausing a stream breaks it. With **Don't filter live streams** on (desktop app, needs the key), live video on YouTube, Twitch, Kick and Rumble is left alone entirely. Live means an infinite duration (Twitch, Kick, most players) or, on YouTube, the player's own live flag.
 - **Escape routes.** Anything blurred or still being checked gets no right-click menu (so no Picture-in-Picture, Save as, Copy address or Open in new tab) and can't be dragged out of the page. Every video carries the attributes the browser's own menus check before offering Picture-in-Picture, and a video that enters it anyway is pulled straight back out.
 - **CSS backgrounds.** A grid of points across the viewport is sampled after scrolls and mutations, in idle time, which finds the large hero and thumbnail backgrounds without walking the DOM. Flagged elements have the background removed rather than blurred, since a filter would blur the element's text and children too. These are detect-then-hide rather than safe-reveal: hiding every background before classification would gut the layout of every site.
-- **Adult sites** are blocked before they load, by a `declarativeNetRequest` ruleset covering a seed domain list plus a two-tier hostname heuristic. Unambiguous words ("porn", "xxx") match anywhere in the hostname; words that occur in ordinary English ("sex", "anal") only match a whole label, so `sussex.ac.uk` and `analytics.google.com` are unaffected. This is a seed list, not a comprehensive filter; the classifier remains the backstop, and the companion app's DNS filter is what will cover non-browser traffic.
+- **Adult sites** are blocked before they load, in four layers:
+  - **A list of ~470,000 known adult sites** ([OISD NSFW](https://oisd.nl)), shipped with every release and refreshed by the extension daily, so new sites are blocked within a day. Sites the maintainers drop as mistakes are unblocked the same way. A download that looks truncated or tampered with is ignored, and major sites (Reddit, X, Google, YouTube, …) can never be blocked by a list.
+  - **Hostname words:** unambiguous words ("porn", "xxx") match anywhere in the hostname; words that occur in ordinary English ("sex", "anal") only match a whole label, so `sussex.ac.uk` and `analytics.google.com` are unaffected.
+  - **Self-labelled pages:** most adult sites mark themselves with the "RTA" label or Google's `rating=adult` tag. Those pages are blocked on sight and the site is remembered.
+  - **Learning from the blur:** three or more explicit images on one page (porn/hentai scores, not merely "sexy") get the whole site blocked from then on. Big user-content platforms and search engines are never learned; per-image blur covers them. A learned block can be undone from the blocked page, which needs the USB key.
 - **Presets.** Blur if any listed score is above its threshold:
 
   | Preset | porn | hentai | sexy |

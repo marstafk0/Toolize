@@ -43,6 +43,7 @@ public sealed class RequestHandler(
                 Verbs.IssueRecovery => Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() }),
                 Verbs.ExtensionHello => ExtensionHello(request),
                 Verbs.ExtensionHeartbeat => ExtensionHeartbeat(request),
+                Verbs.AuthorizeWeakening => AuthorizeWeakening(request),
                 _ => Response.Failure(request.Id, $"unknown verb '{request.Verb}'", "unknown-verb"),
             };
         }
@@ -109,6 +110,21 @@ public sealed class RequestHandler(
         store.SetChannel(channel);
         store.Note($"channel set to {channel}");
         return Response.Success(request.Id, await updates.CheckAsync(ct));
+    }
+
+    private Response AuthorizeWeakening(Request request)
+    {
+        // Content-free by contract: the log says that something was unblocked, never what.
+        var what = request.ArgsAs<AuthorizeWeakeningArgs>()?.What;
+        if (string.IsNullOrWhiteSpace(what) || what.Length > 80 || what.Contains("://"))
+            return Response.Failure(request.Id, "describe the change in a few words", "bad-request");
+        if (!unlock.Refresh().CanWeaken)
+        {
+            store.Note($"refused while locked: {what}");
+            return Response.Failure(request.Id, $"the unlock key must be plugged in to allow {what}", "locked");
+        }
+        store.Note($"weakened: {what}");
+        return Response.Success(request.Id, new { allowed = true });
     }
 
     private async Task<Response> ApplyUpdateAsync(Request request, CancellationToken ct)

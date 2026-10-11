@@ -17,14 +17,22 @@
     @media (prefers-color-scheme: dark) { p { color: #9c988f; } }
     .mark { width: 54px; height: 54px; border-radius: 50%; background: #2f5d50; margin: 0 auto 1.25rem; position: relative; }
     .mark::after { content: ""; position: absolute; inset: 45% 25%; background: #fff; border-radius: 2px; }
+    button {
+      margin-top: 1.25rem; font: inherit; padding: .45rem 1rem; border-radius: 6px; cursor: pointer;
+      border: 1px solid #c9c5bd; background: transparent; color: inherit;
+    }
+    #status { min-height: 1.5em; }
   </style>
 </head>
 <body>
   <main>
     <div class="mark"></div>
     <h1>This site is blocked</h1>
-    <p>Toolize blocks known adult sites before they load.</p>
-    <p>If this is a mistake, the site list can be changed in the extension&nbsp;settings.</p>
+    <p id="why">Toolize blocks known adult sites before they load.</p>
+    <p id="site" hidden></p>
+    <button id="unblock" hidden>Unblock this site</button>
+    <p id="status"></p>
   </main>
+  <script src="blocked.js"></script>
 </body>
 </html>

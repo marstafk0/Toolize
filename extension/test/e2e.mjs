@@ -7,7 +7,7 @@
 //   NO_GPU=1 npm run test:e2e     (GPU-less machine: exercises the WASM backend)
 //   CHROMIUM=/path/to/chrome      (override browser; branded Chrome ignores --load-extension)
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +48,12 @@ try {
     headless: !process.env.HEADED,
     viewport: { width: 1280, height: 900 },
     // NO_GPU=1 forces the software-GL path -> classifier should pick the WASM backend.
-    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`, ...(process.env.NO_GPU ? ['--disable-gpu'] : [])],
+    args: [
+      `--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
+      // Real-looking hostnames for the site-learning tests (localhost is never learned).
+      '--host-resolver-rules=MAP *.test 127.0.0.1',
+      ...(process.env.NO_GPU ? ['--disable-gpu'] : []),
+    ],
   });
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   const extId = new URL(sw.url()).host;
@@ -261,6 +266,54 @@ try {
   check('site blocking can be turned off', !blockedPage.url().includes('/blocked/blocked.html'), blockedPage.url());
   await setSettings({ blockAdultSites: true });
   await blockedPage.close();
+
+  // ---- learning: a site with several explicit images is blocked from then on
+  const learnPage = await context.newPage();
+  const onBlockedPage = (p, reason) => () => p.url().includes('/blocked/blocked.html') && p.url().includes(`reason=${reason}`);
+  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await learnPage.evaluate(() => {
+    for (let i = 0; i < 3; i++) {
+      const img = document.createElement('img');
+      img.src = `/img/320x240/learn-${i}__tz_test_flag.png`;
+      document.body.append(img);
+    }
+  });
+  const learned = await waitFor(onBlockedPage(learnPage, 'images'), { timeout: 20_000 });
+  check('a site with 3 explicit images is blocked', !!learned, learnPage.url());
+  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  check('a learned site stays blocked on the next visit', onBlockedPage(learnPage, 'images')(), learnPage.url());
+
+  // Unblock from the blocked page (no desktop app here, so no key to ask for).
+  await learnPage.click('#unblock');
+  await waitFor(async () => (await sw.evaluate(() => chrome.storage.local.get('learnedSites'))).learnedSites?.length === 0);
+  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  check('Unblock on the blocked page lets the site load again', !learnPage.url().includes('/blocked/'), learnPage.url());
+
+  // A self-labelled adult page is blocked on sight.
+  await learnPage.goto('http://rated.test:8787/pages/rated.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  const labelled = await waitFor(onBlockedPage(learnPage, 'label'), { timeout: 10_000 });
+  check('a page carrying the RTA adult label is blocked', !!labelled, learnPage.url());
+  await learnPage.close();
+
+  // ---- daily list update: new domains blocked, domains dropped from the list allowed
+  const shipped = JSON.parse(readFileSync(join(dist, 'rules/adult.json'), 'utf8')).find((r) => r.id === 1).condition.requestDomains;
+  const seed = new Set(JSON.parse(readFileSync(join(root, 'src/shared/adult-domains.json'), 'utf8')));
+  const dropped = shipped.find((d) => !seed.has(d));
+  const fresh = ['# test list', ...shipped.filter((d) => d !== dropped), 'fresh-list.test'].join('\n');
+  await fetch('http://localhost:8787/upload/blocklist.txt', { method: 'POST', body: fresh });
+  const update = await sw.evaluate((url) => self.__tz.updateList(url), 'http://localhost:8787/media/blocklist.txt');
+  const listPage = await context.newPage();
+  await listPage.goto('http://fresh-list.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  check('a domain added to the list since release is blocked after the daily update',
+    listPage.url().includes('/blocked/blocked.html'), `${JSON.stringify(update)} -> ${listPage.url()}`);
+  const allowRule = (await sw.evaluate(() => chrome.declarativeNetRequest.getDynamicRules())).find((r) => r.action.type === 'allow');
+  check('a domain dropped from the list is let through again', !!allowRule?.condition.requestDomains?.includes(dropped),
+    `${dropped}: ${JSON.stringify(allowRule?.condition.requestDomains?.slice(0, 3))}`);
+  // A tiny (truncated or hijacked) list must not wipe protection.
+  await fetch('http://localhost:8787/upload/tiny.txt', { method: 'POST', body: 'example.com\n' });
+  const tiny = await sw.evaluate((url) => self.__tz.updateList(url).then(() => 'applied', (e) => e.message), 'http://localhost:8787/media/tiny.txt');
+  check('a list far smaller than the shipped one is refused', tiny !== 'applied', tiny);
+  await listPage.close();
 
   // Hostname matching: the keyword rule must not swallow legitimate sites.
   {

@@ -64,6 +64,9 @@ public sealed record Check(string Name, bool Ok, string Detail, string? Fix = nu
 
 public sealed record SetSettingsArgs(Settings Settings);
 
+/// <param name="What">Human-readable and content-free, e.g. "unblocking a learned site". Never a URL.</param>
+public sealed record AuthorizeWeakeningArgs(string What);
+
 public sealed record SetChannelArgs(string Channel);
 
 public sealed record EnrollKeyArgs(string Drive, string Name);

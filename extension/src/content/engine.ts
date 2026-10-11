@@ -6,6 +6,10 @@ import { ClassifyClient } from './client';
 import { ImageWatcher } from './images';
 import { Stamper } from './state';
 import { VideoWatcher } from './video';
+import type { LearnSiteRequest, LearnSiteResult } from '../shared/messages';
+
+/** Distinct explicit images on one page before the whole site is blocked. */
+const LEARN_AFTER = 3;
 
 const STATS_DEBOUNCE_MS = 750;
 
@@ -46,7 +50,10 @@ export class BlurEngine {
 
   private readonly client = new ClassifyClient();
   private readonly stamper = new Stamper(() => this.scheduleStats());
-  private readonly images = new ImageWatcher(this.client, this.stamper);
+  private readonly images = new ImageWatcher(this.client, this.stamper, (key) => this.onExplicit(key));
+  private settings: Settings | null = null;
+  private explicit = new Set<string>();
+  private learning = false;
   private readonly videos = new VideoWatcher(this.client, this.stamper);
   private readonly backgrounds = new BackgroundWatcher(
     this.client,
@@ -105,12 +112,38 @@ export class BlurEngine {
   }
 
   setSettings(s: Settings): void {
+    this.settings = s;
     this.images.setSettings(s);
     this.videos.setSettings(s);
     this.backgrounds.setSettings(s);
     this.forEachMedia((el) =>
       el.localName === 'img' ? this.images.consider(el as HTMLImageElement) : this.videos.consider(el as HTMLVideoElement),
     );
+  }
+
+  /**
+   * Several explicit images on one page: this is an adult site the lists missed. Ask
+   * the background to block it from now on, and leave. The background decides whether
+   * this site may be learned at all (big platforms never are).
+   */
+  private onExplicit(key: string): void {
+    this.explicit.add(key);
+    if (this.explicit.size < LEARN_AFTER) return;
+    void this.learnSite('images');
+  }
+
+  async learnSite(reason: LearnSiteRequest['reason']): Promise<void> {
+    const s = this.settings;
+    if (this.learning || !s?.enabled || !s.blockAdultSites || !chrome.runtime?.id) return;
+    this.learning = true;
+    try {
+      const res: LearnSiteResult = await chrome.runtime.sendMessage({ target: 'background', kind: 'learnSite', reason } satisfies LearnSiteRequest);
+      // Not learnable here (a big platform, a local address): per-image blur carries
+      // on, and this page stops asking.
+      if (res?.blockedUrl) location.replace(res.blockedUrl);
+    } catch {
+      this.learning = false;
+    }
   }
 
   isAlive(): boolean {

@@ -4,5 +4,6 @@ extension/test/.artifacts/
 extension/test/corpus/**
 !extension/test/corpus/README.md
 out/
+extension/blocklist/
 companion/**/bin/
 companion/**/obj/

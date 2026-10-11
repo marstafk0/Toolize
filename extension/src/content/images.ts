@@ -1,5 +1,5 @@
 import type { ImageSource } from '../shared/messages';
-import { decide, PRESETS, type ClassifyResult } from '../shared/policy';
+import { decide, isExplicit, PRESETS, type ClassifyResult } from '../shared/policy';
 import type { Settings } from '../shared/settings';
 import { ClassifyClient, isFetchFailure } from './client';
 import { extractPixels } from './extract';
@@ -51,6 +51,8 @@ export class ImageWatcher {
   constructor(
     private readonly client: ClassifyClient,
     private readonly stamper: Stamper,
+    /** An image on this page was explicit (porn/hentai), keyed by URL hash. */
+    private readonly onExplicit: (key: string) => void = () => {},
   ) {}
 
   setSettings(s: Settings): void {
@@ -149,7 +151,9 @@ export class ImageWatcher {
   }
 
   private apply(img: HTMLImageElement, t: Track, r: ClassifyResult): void {
-    const d = decide(r, PRESETS[this.settings!.preset]);
+    const thresholds = PRESETS[this.settings!.preset];
+    const d = decide(r, thresholds);
+    if (d === 'blocked' && isExplicit(r, thresholds)) this.onExplicit(t.key);
     if (d !== 'refine') return this.stamper.set(img, d);
 
     // Borderline: stay hidden and re-score on full-resolution tiles.

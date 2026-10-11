@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { encodePng } from './scripts/png.mjs';
+import { downloadBlocklist, readBlocklist } from './scripts/blocklist.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const out = join(root, 'dist');
@@ -63,17 +64,34 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
 {
   const tmp = join(out, '.sites.mjs');
   await esbuild.build({ entryPoints: [join(root, 'src/shared/sites.ts')], outfile: tmp, bundle: true, format: 'esm', logLevel: 'silent' });
-  const { ADULT_DOMAINS, adultHostRegex } = await import(pathToFileURL(tmp).href);
+  const { ADULT_DOMAINS, NEVER_BLOCK, adultHostRegex } = await import(pathToFileURL(tmp).href);
   rmSync(tmp);
 
+  // The big list. Release builds refresh it first; otherwise use the copy on disk, and
+  // download one if there is none. A production build without it would ship a
+  // protection gap, so that fails; a dev build carries on with the seed list.
+  let big = readBlocklist();
+  if (!big) {
+    try {
+      await downloadBlocklist();
+      big = readBlocklist();
+    } catch (e) {
+      if (!dev) throw e;
+      console.warn(`blocklist unavailable (${e.message}); dev build uses the seed list only`);
+    }
+  }
+  const never = new Set(NEVER_BLOCK);
+  const domains = [...new Set([...ADULT_DOMAINS, ...(big ?? [])])].filter((d) => !never.has(d)).sort();
+  console.log(`blocklist: ${domains.length.toLocaleString()} domains`);
+
+  // One rule for every resource type: a navigation lands on the blocked page, an
+  // embedded frame shows it inline, and an image/video/XHR redirected to an HTML page
+  // simply fails. (One rule also means the list is stored once, not twice.)
   const blocked = { type: 'redirect', redirect: { extensionPath: '/blocked/blocked.html' } };
   const rules = [
-    // Navigation to a known adult domain (or any of its subdomains).
-    { id: 1, priority: 2, action: blocked, condition: { requestDomains: ADULT_DOMAINS, resourceTypes: ['main_frame'] } },
-    // Embedded players / images / XHR from those domains on other sites.
     {
-      id: 2, priority: 2, action: { type: 'block' },
-      condition: { requestDomains: ADULT_DOMAINS, resourceTypes: ['sub_frame', 'image', 'media', 'xmlhttprequest'] },
+      id: 1, priority: 2, action: blocked,
+      condition: { requestDomains: domains, resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest'] },
     },
     // Long tail: hostname keyword match (see ADULT_LABEL_WORDS).
     { id: 3, priority: 1, action: blocked, condition: { regexFilter: adultHostRegex(), resourceTypes: ['main_frame'] } },
@@ -81,6 +99,11 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
   if (dev) rules.push({ id: 99, priority: 3, action: blocked, condition: { urlFilter: '__tz_test_adult', resourceTypes: ['main_frame'] } });
   mkdirSync(join(out, 'rules'), { recursive: true });
   writeFileSync(join(out, 'rules/adult.json'), JSON.stringify(rules));
+  writeFileSync(
+    join(out, 'rules/NOTICE.txt'),
+    'rules/adult.json includes the OISD NSFW list (https://oisd.nl), licensed under the GNU GPL v3.\n' +
+      'The extension refreshes it daily from https://nsfw.oisd.nl/domainswild2.\n',
+  );
 }
 
 // ---- TF.js WASM backend binaries (fallback when there's no hardware WebGL).
@@ -136,6 +159,7 @@ const configs = [
       'content/content': 'src/content/index.ts',
       'content/main-world': 'src/content/main-world.ts',
       'popup/popup': 'src/popup/index.ts',
+      'blocked/blocked': 'src/blocked/index.ts',
     },
     outdir: out,
   },

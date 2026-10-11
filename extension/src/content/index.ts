@@ -1,6 +1,7 @@
 import { loadSettings, onSettingsChanged } from '../shared/settings';
 import { BlurEngine } from './engine';
 import { hideOverlay, isStale, showOverlay } from './failclosed';
+import { watchForAdultLabel } from './labels';
 
 /**
  * Isolated-world entry (document_start, all frames). blur.css is already applied by
@@ -17,8 +18,10 @@ if (!g[INSTANCE]?.isAlive()) {
   const engine = new BlurEngine();
   g[INSTANCE] = engine;
   engine.start();
-  loadSettings().then((s) => engine.setSettings(s));
+  const ready = loadSettings().then((s) => engine.setSettings(s));
   onSettingsChanged((s) => engine.setSettings(s));
+  // A page that labels itself adult is blocked, and its site remembered.
+  watchForAdultLabel(() => void ready.then(() => engine.learnSite('label')));
 
   // Fail closed: if this machine is enforced and the desktop app has gone quiet, cover
   // the page rather than pretending everything is fine.

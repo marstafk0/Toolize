@@ -7,6 +7,7 @@
 //   /img-referer/<w>x<h>/<name>.png   403 unless Referer is a localhost page (hotlink-protected CDN sim)
 //   POST /upload/<name>.webm          stores a browser-recorded test clip (OS temp dir)
 //   /media/<name>.webm                serves it back (?cors=1 adds ACAO)
+//   youtube.test, facebook.test       fake YouTube / Facebook pages for the feed tests
 //   /corpus/index.json                lists test/corpus/{safe,flag}/**  (your local images)
 //   /corpus/files/*                   corpus images
 //   POST /corpus/results              saves a regression run to test/corpus/results/
@@ -66,6 +67,16 @@ function handler(req, res) {
     res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers });
     res.end(body);
   };
+
+  // Stand-ins for YouTube and Facebook (e2e maps *.test here): the feed tests need the
+  // real hostnames and paths, since toggles depend on both.
+  const host = (req.headers.host ?? '').split(':')[0];
+  if (host === 'youtube.test' && (path === '/' || path === '/watch' || path.startsWith('/shorts/'))) {
+    return send(200, readFileSync(join(pagesDir, 'youtube.html')), MIME['.html']);
+  }
+  if (host === 'facebook.test' && (path === '/' || path.startsWith('/groups/') || path.startsWith('/reel/'))) {
+    return send(200, readFileSync(join(pagesDir, 'facebook.html')), MIME['.html']);
+  }
 
   const img = path.match(/^\/(img|img-referer)\/(\d+)x(\d+)\/([\w.-]+)\.png$/);
   if (img) {

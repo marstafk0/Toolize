@@ -76,19 +76,48 @@ import blurCss from '../shared/blur.css';
   // so reliably (duration is finite and barely moves, and the page metadata is gone
   // after in-app navigation). Mirror its answer onto the <video> for the isolated
   // world, which only honours it on the live-stream sites.
-  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+  //
+  // Same for what the video is (title and the uploader's category), which decides
+  // whether comments show in "learning" mode. The player's response is current after
+  // in-app navigation; the page's initial copy is not.
+  if (/(^|\.)youtube\.com$/.test(location.hostname) || (__DEV__ && location.hostname === 'youtube.test')) {
+    type PlayerResponse = {
+      videoDetails?: { videoId?: string; title?: string };
+      microformat?: { playerMicroformatRenderer?: { category?: string } };
+    };
+    type Player = HTMLElement & {
+      getVideoData?: () => { isLive?: boolean };
+      getPlayerResponse?: () => PlayerResponse | undefined;
+    };
     setInterval(() => {
-      const player = document.getElementById('movie_player') as (HTMLElement & { getVideoData?: () => { isLive?: boolean } }) | null;
-      const v = player?.querySelector('video');
+      const player = document.getElementById('movie_player') as Player | null;
+      if (!player) return;
+      try {
+        const r = player.getPlayerResponse?.();
+        const id = r?.videoDetails?.videoId;
+        if (id) {
+          const meta = JSON.stringify({
+            id,
+            title: r.videoDetails?.title ?? '',
+            category: r.microformat?.playerMicroformatRenderer?.category,
+          });
+          const html = document.documentElement;
+          if (html.getAttribute('data-tz-yt-meta') !== meta) html.setAttribute('data-tz-yt-meta', meta);
+        }
+      } catch {
+        /* player not ready */
+      }
+
+      const v = player.querySelector('video');
       if (!v) return;
       let live = false;
       try {
-        live = player?.getVideoData?.()?.isLive === true;
+        live = player.getVideoData?.()?.isLive === true;
       } catch {
         /* player not ready */
       }
       if (live !== v.hasAttribute('data-tz-live')) v.toggleAttribute('data-tz-live', live);
-    }, 1000);
+    }, 500);
   }
 
   // Document Picture-in-Picture opens a separate window the content scripts never see.

@@ -7,6 +7,7 @@ import type {
   SetSettingsResult,
   TabStats,
 } from '../shared/messages';
+import { CATALOG, feedKey, type CommentMode } from '../shared/feeds';
 import { PRESETS, type Preset } from '../shared/policy';
 import { loadSettings, type RevealMode, type Settings } from '../shared/settings';
 
@@ -24,16 +25,56 @@ const MODE_HINTS: Record<RevealMode, string> = {
   safe: 'Images stay blurred until checked. No flashes.',
   fast: 'Images show immediately; flagged ones blur after checking. Can flash.',
 };
+const COMMENT_HINTS: Record<CommentMode, string> = {
+  show: 'Comments show everywhere.',
+  learning: 'Comments show on how-to, DIY and learning videos only.',
+  hide: 'Comments are hidden on every video.',
+};
+const FOOTNOTE = ' Commenter avatars and profile links are always off, and spam bots are hidden.';
+
+/** One switch per feed toggle in the catalog. Turning one off again needs the key. */
+function buildFeeds(): void {
+  const host = $('feed-sites');
+  for (const site of CATALOG) {
+    const h = document.createElement('h3');
+    h.textContent = site.name;
+    host.append(h);
+    for (const t of site.toggles) {
+      const row = document.createElement('label');
+      row.className = 'feed';
+      row.title = t.hint;
+      const name = document.createElement('span');
+      name.className = 'label';
+      name.textContent = `Hide ${t.label.toLowerCase()}`;
+      const sw = document.createElement('span');
+      sw.className = 'switch';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.dataset.feed = feedKey(site, t);
+      sw.append(input, document.createElement('span'));
+      row.append(name, sw);
+      host.append(row);
+    }
+  }
+  host.addEventListener('change', async (e) => {
+    const input = e.target as HTMLInputElement;
+    if (!input.dataset.feed) return;
+    const feeds = { ...(await loadSettings()).feeds, [input.dataset.feed]: input.checked };
+    await change({ feeds });
+  });
+}
 
 function render(s: Settings): void {
   $<HTMLInputElement>('enabled').checked = s.enabled;
   $<HTMLInputElement>('blockAdultSites').checked = s.blockAdultSites;
-  for (const [group, value] of [['preset', s.preset], ['mode', s.mode]] as const) {
+  for (const [group, value] of [['preset', s.preset], ['mode', s.mode], ['youtubeComments', s.youtubeComments]] as const) {
     $(group).querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === value)));
   }
   const t = PRESETS[s.preset];
   $('preset-hint').textContent = `${PRESET_HINTS[s.preset]} (porn>${t.porn}, hentai>${t.hentai}, sexy>${t.sexy})`;
   $('mode-hint').textContent = MODE_HINTS[s.mode];
+  $('comments-hint').textContent = COMMENT_HINTS[s.youtubeComments] + FOOTNOTE;
+  document.querySelectorAll<HTMLInputElement>('input[data-feed]').forEach((i) => (i.checked = !!s.feeds?.[i.dataset.feed!]));
   document.body.style.opacity = s.enabled ? '1' : '0.75';
 }
 
@@ -54,7 +95,7 @@ async function change(patch: Record<string, unknown>): Promise<void> {
   }
 }
 
-function bindSeg(id: 'preset' | 'mode'): void {
+function bindSeg(id: 'preset' | 'mode' | 'youtubeComments'): void {
   $(id).addEventListener('click', async (e) => {
     const value = (e.target as HTMLElement).closest('button')?.dataset.value;
     if (value) await change({ [id]: value });
@@ -87,6 +128,7 @@ async function refreshStats(): Promise<void> {
 }
 
 (async () => {
+  buildFeeds();
   render(await loadSettings());
   for (const id of ['enabled', 'blockAdultSites'] as const) {
     $<HTMLInputElement>(id).addEventListener('change', (e) =>
@@ -95,6 +137,7 @@ async function refreshStats(): Promise<void> {
   }
   bindSeg('preset');
   bindSeg('mode');
+  bindSeg('youtubeComments');
   await refreshStats();
   setInterval(refreshStats, 1000);
 })();

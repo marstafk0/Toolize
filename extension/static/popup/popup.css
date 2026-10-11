@@ -62,6 +62,15 @@ section { padding: 10px 0; border-top: 1px solid var(--line); }
 .stats dt { font-size: 11px; color: var(--muted); }
 .stats dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; font-weight: 600; }
 
+details summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; }
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: "Show"; font-size: 11px; color: var(--muted); }
+details[open] summary::after { content: "Hide"; }
+details summary h2 { margin: 0; }
+h3 { font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
+.feed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.feed span.label { font-size: 12px; }
+
 #lock-note:empty { display: none; }
 #lock-note { color: #b03a2e; margin: 8px 0 0; }
 

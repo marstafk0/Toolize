@@ -1,0 +1,55 @@
+{
+  "id": "facebook",
+  "name": "Facebook",
+  "hosts": ["facebook.com"],
+  "toggles": [
+    {
+      "id": "feed",
+      "label": "News feed",
+      "hint": "The home feed. Groups, profiles, Messenger and Marketplace still work.",
+      "paths": "^/(home\\.php)?(\\?.*)?$",
+      "hide": [
+        "div[role=\"main\"] div[role=\"feed\"]",
+        "div[role=\"main\"] [data-pagelet^=\"FeedUnit\"]"
+      ],
+      "notice": {
+        "at": "div[role=\"main\"]",
+        "text": "News feed hidden by Toolize."
+      }
+    },
+    {
+      "id": "stories",
+      "label": "Stories",
+      "hint": "The stories tray at the top of the home page.",
+      "paths": "^/(home\\.php)?(\\?.*)?$",
+      "hide": [
+        "div[aria-label=\"Stories\" i]",
+        "div[aria-label=\"stories tray\" i]",
+        "[data-pagelet=\"Stories\"]"
+      ]
+    },
+    {
+      "id": "reels",
+      "label": "Reels",
+      "hint": "Reels in the feed and the Reels shortcut. Reel links go to the home page.",
+      "hide": [
+        "a[href$=\"/reel/\"]",
+        "a[aria-label=\"Reels\" i]",
+        "div[aria-label=\"Reels\" i]",
+        "div[role=\"feed\"] > div:has(a[href*=\"/reel/\"])",
+        "[data-pagelet^=\"FeedUnit\"]:has(a[href*=\"/reel/\"])"
+      ],
+      "redirect": { "from": "^/reels?/.*", "to": "/" }
+    },
+    {
+      "id": "watch",
+      "label": "Video tab",
+      "hint": "The endless video feed. Videos people share with you still play.",
+      "hide": [
+        "a[href$=\"/watch/\"]",
+        "a[aria-label=\"Video\" i][href*=\"/watch\"]"
+      ],
+      "redirect": { "from": "^/watch/?(\\?(?!v=).*)?$", "to": "/" }
+    }
+  ]
+}

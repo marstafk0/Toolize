@@ -170,6 +170,8 @@ async Task ShowStatusAsync()
     Console.WriteLine($"  protection   {(s.Settings.Enabled ? "on" : "OFF")}, {s.Settings.Preset.ToString().ToLower()}, " +
                       $"{(s.Settings.Mode == RevealMode.Safe ? "safe reveal" : "detect then blur")}" +
                       $"{(s.Settings.BlockAdultSites ? ", adult sites blocked" : "")}");
+    var feeds = (s.Settings.Feeds ?? []).Where(f => f.Value).Select(f => f.Key).ToList();
+    Console.WriteLine($"  feeds        {(feeds.Count == 0 ? "none hidden" : $"hidden: {string.Join(", ", feeds)}")}; YouTube comments {s.Settings.YoutubeComments.ToString().ToLower()}");
     Console.WriteLine($"  lock         {(s.Lock.Enrolled ? s.Lock.KeyPresent ? "unlocked (key present)" : "LOCKED" : "no key enrolled")}");
     Console.WriteLine($"  extension    {(s.Extension.Connected ? $"connected ({s.Extension.Version}{(s.Extension.Browsers.Count > 0 ? $" in {string.Join(", ", s.Extension.Browsers)}" : "")}), {s.Extension.Blocked} blocked / {s.Extension.Checked} checked" : "not connected")}");
     Console.WriteLine($"  enforcement  {(s.Enforcement.Applied ? s.Enforcement.Summary : "off — the extension can still be removed in the browser")}");
@@ -179,7 +181,8 @@ async Task ShowStatusAsync()
 
 async Task SetAsync(string[] pair)
 {
-    if (pair.Length != 2)
+    var isFeed = pair.Length == 3 && pair[0].Equals("feed", StringComparison.OrdinalIgnoreCase);
+    if (pair.Length != 2 && !isFeed)
     {
         Console.Error.WriteLine("""
             usage: toolize set <setting> <value>
@@ -187,13 +190,23 @@ async Task SetAsync(string[] pair)
               preset   strict|balanced|relaxed
               mode     safe|fast
               watchdog off|warn|close
+              youtubeComments show|learning|hide
+              feed <site.toggle> on|off     (on = hidden)
             """);
+        Console.Error.WriteLine("  feeds: " + string.Join(", ", FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key)));
         return;
     }
     var current = (await Ask(Verbs.GetSettings)).DataAs<Settings>()!;
-    var (key, value) = (pair[0].ToLowerInvariant(), pair[1].ToLowerInvariant());
+    if (isFeed)
+    {
+        if (!FeedCatalog.IsKnown(pair[1])) throw new ArgumentException($"unknown feed '{pair[1]}'");
+        pair = ["feed", pair[1], pair[2]];
+    }
+    var (key, value) = (pair[0].ToLowerInvariant(), pair[^1].ToLowerInvariant());
     var next = key switch
     {
+        "feed" => current with { Feeds = new(current.Feeds ?? []) { [pair[1]] = ParseBool(value) } },
+        "youtubecomments" => current with { YoutubeComments = Enum.Parse<CommentMode>(value, true) },
         "enabled" => current with { Enabled = ParseBool(value) },
         "preset" => current with { Preset = Enum.Parse<Preset>(value, true) },
         "mode" => current with { Mode = Enum.Parse<RevealMode>(value, true) },

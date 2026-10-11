@@ -1,3 +1,4 @@
+import type { CommentMode } from './feeds';
 import type { Preset } from './policy';
 
 /**
@@ -14,6 +15,10 @@ export interface Settings {
   blockAdultSites: boolean;
   /** Leave live streams on the LIVE_SITES alone (set in the desktop app; needs the key). */
   allowLiveStreams: boolean;
+  /** Feed toggles that are on, keyed "<site>.<toggle>" (see sites/*.json). */
+  feeds: Record<string, boolean>;
+  /** Where YouTube comments show. Bot protection applies whatever this is. */
+  youtubeComments: CommentMode;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,6 +27,8 @@ export const DEFAULT_SETTINGS: Settings = {
   mode: 'safe',
   blockAdultSites: true,
   allowLiveStreams: false,
+  feeds: {},
+  youtubeComments: 'show',
 };
 
 /** Sites whose live streams `allowLiveStreams` exempts, matched with their subdomains. */

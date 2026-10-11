@@ -101,6 +101,23 @@
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="FEEDS" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,4"
+                                   Text="Hide the endless parts of these sites. Turning one back on needs your key." />
+                        <StackPanel x:Name="FeedsPanel" />
+
+                        <TextBlock Margin="0,14,0,6" FontWeight="SemiBold" Text="YouTube comments" />
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="CommentsShow" GroupName="comments" Content="Show" Click="OnSettingChanged" />
+                            <RadioButton x:Name="CommentsLearning" GroupName="comments" Content="How-to videos only" Click="OnSettingChanged" />
+                            <RadioButton x:Name="CommentsHide" GroupName="comments" Content="Hide" Click="OnSettingChanged" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" x:Name="CommentsHint" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="BROWSER EXTENSION" />
                         <TextBlock x:Name="ExtensionText" Text="Checking…" />
                     </StackPanel>

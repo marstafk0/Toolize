@@ -326,6 +326,67 @@ try {
     check('hostname heuristic: catches adult hosts, spares lookalikes', wrong.length === 0, wrong.join(', '));
   }
 
+  // ---- feeds: per-site toggles from sites/*.json, and YouTube comments
+  await setSettings({ feeds: { 'youtube.home': true, 'youtube.shorts': true, 'youtube.related': true }, youtubeComments: 'learning' });
+  const yt = await context.newPage();
+  const shown = (sel) => yt.evaluate((s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== 'none'; }, sel);
+  const commentState = () => yt.evaluate(() => document.documentElement.getAttribute('data-tz-yt-comments'));
+  await yt.goto('http://youtube.test:8787/watch?v=learn1', { waitUntil: 'domcontentloaded' });
+  await waitFor(async () => (await commentState()) === 'shown', { timeout: 5000 });
+  check('YouTube feed toggles hide the home grid, Shorts and recommendations',
+    !(await shown('#grid')) && !(await shown('#shorts-shelf')) && !(await shown('#guide-shorts')) && !(await shown('#related')),
+    JSON.stringify({ grid: await shown('#grid'), shorts: await shown('#shorts-shelf'), related: await shown('#related') }));
+  check('how-to mode shows comments on a how-to video', (await commentState()) === 'shown' && (await shown('#sections')), await commentState());
+  await waitFor(async () => !(await shown('#t-bot-name')) && !(await shown('#t-bot-text')), { timeout: 3000 });
+  check('porn-bot comments are hidden (fancy-font handle, "look at my profile")',
+    (await shown('#t-normal')) && !(await shown('#t-bot-name')) && !(await shown('#t-bot-text')));
+  const guard = await yt.evaluate(() => {
+    const img = document.querySelector('#t-normal #img');
+    const cs = (s) => getComputedStyle(document.querySelector(s));
+    return { avatar: getComputedStyle(img).visibility, author: cs('#t-normal #author-text').pointerEvents,
+      button: cs('#t-normal #author-thumbnail').pointerEvents, timestamp: cs('#ts').pointerEvents };
+  });
+  check('commenter avatars hidden and profile links dead, timestamps still clickable',
+    guard.avatar === 'hidden' && guard.author === 'none' && guard.button === 'none' && guard.timestamp !== 'none', JSON.stringify(guard));
+
+  await yt.evaluate(() => window.goTo('learn2'));
+  await waitFor(async () => (await commentState()) === 'shown', { timeout: 3000 });
+  check('a "How to" title shows comments even when filed under Entertainment', (await commentState()) === 'shown', await commentState());
+  await yt.evaluate(() => window.goTo('ent1'));
+  await waitFor(async () => (await commentState()) === 'entertainment', { timeout: 3000 });
+  check('in-app navigation to an entertainment video hides its comments',
+    (await commentState()) === 'entertainment' && !(await shown('#sections')), await commentState());
+
+  await yt.goto('http://youtube.test:8787/shorts/ent1', { waitUntil: 'domcontentloaded' });
+  await waitFor(() => yt.url().includes('/watch?v=ent1'), { timeout: 5000 });
+  check('a Shorts link opens as a normal video', yt.url().endsWith('/watch?v=ent1'), yt.url());
+
+  await setSettings({ youtubeComments: 'show', feeds: {} });
+  await waitFor(async () => (await commentState()) === 'shown' && (await shown('#grid')), { timeout: 3000 });
+  check('turning the toggles off shows everything again (bots still hidden)',
+    (await shown('#grid')) && (await shown('#sections')) && !(await shown('#t-bot-text')));
+  await setSettings({ youtubeComments: 'hide' });
+  await waitFor(async () => (await commentState()) === 'hidden', { timeout: 3000 });
+  check('hide mode hides comments on every video', !(await shown('#sections')));
+  await setSettings({ youtubeComments: 'show' });
+  await yt.close();
+
+  await setSettings({ feeds: { 'facebook.feed': true, 'facebook.stories': true, 'facebook.reels': true } });
+  const fb = await context.newPage();
+  const fbShown = (sel) => fb.evaluate((s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== 'none'; }, sel);
+  await fb.goto('http://facebook.test:8787/', { waitUntil: 'domcontentloaded' });
+  await waitFor(async () => !(await fbShown('#feed')), { timeout: 5000 });
+  check('Facebook news feed, stories and reels hidden on the home page',
+    !(await fbShown('#feed')) && !(await fbShown('#stories')) && !(await fbShown('#reels-link')));
+  await fb.goto('http://facebook.test:8787/groups/woodworking', { waitUntil: 'domcontentloaded' });
+  await new Promise((r) => setTimeout(r, 800));
+  check('a group feed is not the news feed, so it stays', (await fbShown('#feed')) && !(await fbShown('#reel-post')));
+  await fb.goto('http://facebook.test:8787/reel/123', { waitUntil: 'domcontentloaded' });
+  await waitFor(() => new URL(fb.url()).pathname === '/', { timeout: 5000 });
+  check('a reel link goes to the home page with Reels hidden', new URL(fb.url()).pathname === '/', fb.url());
+  await setSettings({ feeds: {} });
+  await fb.close();
+
   // ---- engine info + popup render
   const info = await engineInfo();
   check('classifier loaded', info?.ready, JSON.stringify(info));

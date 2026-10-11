@@ -74,10 +74,27 @@ about what each tier actually guarantees.
   unreadable by anyone, us included. A site shipping Widevine is a streaming service,
   and real adult sites are blocked at the network layer before this matters.
 - **Feed control:** declarative per-site CSS hiding, toggleable from the popup/GUI.
-  YouTube (home feed, Shorts, sidebar recs, comments, end cards), X (For You, trends,
-  sidebar), Reddit (home/popular/all, sidebar), Instagram (Explore, Reels), Facebook
-  (news feed), LinkedIn (feed), TikTok web. Each toggle = a named CSS ruleset. Site
-  rules live in a `sites/*.json` catalog so new sites are data, not code.
+  Each toggle = a named CSS ruleset (`hide` selectors, optional `paths` regex, `notice`
+  text, `redirect`) in `extension/sites/*.json`, so new sites are data, not code. The
+  companion embeds the same files (`FeedCatalog`) to draw its checkboxes. Settings key
+  `feeds["<site>.<toggle>"]`; turning one off is weakening. Done: YouTube (home, Shorts
+  + `/shorts/ID` → `/watch?v=ID`, recommendations, end screens) and Facebook (news feed,
+  stories, reels, video tab — selectors unverified against a logged-in account). Still
+  to come: X, Reddit, Instagram, LinkedIn, TikTok.
+- **YouTube comments** (`youtubeComments`: show < learning < hide). "learning" shows
+  comments only when the uploader's category is Howto & Style / Education / Science &
+  Technology, OR the title reads as a how-to ("how to", tutorial, DIY, fix, repair…).
+  The title rule is what handles a big entertainment channel's one-off how-to. Shorts,
+  posts and unknown videos stay hidden (fail safe). The MAIN-world hook mirrors the
+  player's response (id, title, category) onto `<html data-tz-yt-meta>`, since the
+  page's initial copy goes stale after in-app navigation.
+- **Comment-bot shield** (always on, every mode): porn-spam bots in big channels'
+  comments lure with a sexual avatar and "look at my profile", and churn faster than
+  any blocklist. So commenter avatars are hidden (they're under the 48px classify
+  threshold anyway), profile/channel/external links in comments are made unclickable
+  (timestamps stay), and comments whose handle or text match a sexual-word /
+  solicitation heuristic are hidden — after folding fancy Unicode fonts, Cyrillic
+  lookalikes and leetspeak (`looksLikeBot` in shared/feeds.ts).
 
 ### Companion: one service, two clients
 
@@ -266,9 +283,10 @@ Toolize/                      # repo root (the product is "Toolize")
 4. **USB unlock.** ✅ Tier A done: enrollment wizard, rotating secret, copy evidence,
    lock/unlock state machine, recovery code, multiple keys. Tier B (FIDO2/YubiKey)
    still to come behind the same `IUnlockProvider`.
-5. **Enforcement.** Policy keys, force-install, incognito off, watchdog, unmanaged
+5. ✅ **Enforcement.** Policy keys, force-install, incognito off, watchdog, unmanaged
    browser handling, uninstall requires unlock, fail-safe states.
-6. **Feed toggles** + sites catalog + lock-aware popup/GUI.
+6. **Feed toggles** + sites catalog + lock-aware popup/GUI. ✅ YouTube + Facebook,
+   YouTube comment modes, comment-bot shield. X/Reddit/Instagram/LinkedIn/TikTok next.
 7. **Beyond the browser** (optional, decide later): local DNS filtering with DoH
    blocked, and screen-level classification for native apps via Windows Graphics
    Capture + ONNX Runtime.

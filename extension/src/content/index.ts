@@ -1,7 +1,10 @@
-import { loadSettings, onSettingsChanged } from '../shared/settings';
+import { siteForHost } from '../shared/feeds';
+import { loadSettings, onSettingsChanged, type Settings } from '../shared/settings';
 import { BlurEngine } from './engine';
 import { hideOverlay, isStale, showOverlay } from './failclosed';
+import { FeedHider } from './feeds';
 import { watchForAdultLabel } from './labels';
+import { YouTubeGuard } from './youtube';
 
 /**
  * Isolated-world entry (document_start, all frames). blur.css is already applied by
@@ -10,16 +13,32 @@ import { watchForAdultLabel } from './labels';
 
 const INSTANCE = '__toolizeEngine';
 const g = globalThis as unknown as Record<string, BlurEngine | undefined>;
+const PAGE_PARTS = '__toolizePageParts';
+const parts = globalThis as unknown as Record<string, { stop(): void }[] | undefined>;
 
 // Injected twice into the same frame (manifest + onInstalled re-injection)? Keep the
 // live one. An orphaned instance from before an extension reload is replaced.
 if (!g[INSTANCE]?.isAlive()) {
   g[INSTANCE]?.stop();
+  for (const p of parts[PAGE_PARTS] ?? []) p.stop();
   const engine = new BlurEngine();
   g[INSTANCE] = engine;
   engine.start();
-  const ready = loadSettings().then((s) => engine.setSettings(s));
-  onSettingsChanged((s) => engine.setSettings(s));
+  // Feed control and YouTube comments: page chrome, so the top frame only.
+  const site = window === window.top ? siteForHost(location.hostname) : undefined;
+  const feeds = site ? new FeedHider(site) : null;
+  const youtube = site?.id === 'youtube' ? new YouTubeGuard() : null;
+  feeds?.start();
+  youtube?.start();
+  parts[PAGE_PARTS] = [feeds, youtube].filter((p) => p !== null);
+
+  const apply = (s: Settings): void => {
+    engine.setSettings(s);
+    feeds?.setSettings(s);
+    youtube?.setSettings(s);
+  };
+  const ready = loadSettings().then(apply);
+  onSettingsChanged(apply);
   // A page that labels itself adult is blocked, and its site remembered.
   watchForAdultLabel(() => void ready.then(() => engine.learnSite('label')));
 

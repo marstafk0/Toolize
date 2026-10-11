@@ -11,4 +11,9 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The extension's feed catalog: one source for both. -->
+    <EmbeddedResource Include="..\..\extension\sites\*.json" LogicalName="sites.%(Filename).json" />
+  </ItemGroup>
+
 </Project>

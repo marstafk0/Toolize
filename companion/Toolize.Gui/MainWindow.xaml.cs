@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Toolize.Core;
@@ -25,9 +26,20 @@ public partial class MainWindow : Window
         [Preset.Relaxed] = "Only clear explicit content. Fewer false positives.",
     };
 
+    private static readonly Dictionary<CommentMode, string> CommentHints = new()
+    {
+        [CommentMode.Show] = "Comments show on every video.",
+        [CommentMode.Learning] = "Comments show on how-to, DIY and learning videos (by YouTube category or a how-to title), and are hidden on entertainment.",
+        [CommentMode.Hide] = "Comments are hidden on every video.",
+    };
+
+    /// <summary>One checkbox per feed toggle, keyed by its setting ("youtube.home").</summary>
+    private readonly Dictionary<string, CheckBox> _feedBoxes = new();
+
     public MainWindow()
     {
         InitializeComponent();
+        BuildFeeds();
         var dev = Environment.GetCommandLineArgs().Contains("--dev");
         _client = new PipeClient(Protocol.PipeName(dev));
         _timer.Tick += async (_, _) => await RefreshAsync();
@@ -36,6 +48,21 @@ public partial class MainWindow : Window
             await RefreshAsync();
             _timer.Start();
         };
+    }
+
+    private void BuildFeeds()
+    {
+        foreach (var site in FeedCatalog.Sites)
+        {
+            FeedsPanel.Children.Add(new TextBlock { Text = site.Name, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 10, 0, 2) });
+            foreach (var toggle in site.Toggles)
+            {
+                var box = new CheckBox { Content = $"Hide {toggle.Label.ToLowerInvariant()}", ToolTip = toggle.Hint, Margin = new Thickness(0, 4, 0, 0) };
+                box.Click += OnSettingChanged;
+                _feedBoxes[toggle.Key] = box;
+                FeedsPanel.Children.Add(box);
+            }
+        }
     }
 
     private async Task RefreshAsync()
@@ -72,6 +99,12 @@ public partial class MainWindow : Window
             ModeFast.IsChecked = s.Settings.Mode == RevealMode.Fast;
             BlockSitesBox.IsChecked = s.Settings.BlockAdultSites;
             AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
+            foreach (var (key, box) in _feedBoxes) box.IsChecked = s.Settings.Feeds?.GetValueOrDefault(key) == true;
+            CommentsShow.IsChecked = s.Settings.YoutubeComments == CommentMode.Show;
+            CommentsLearning.IsChecked = s.Settings.YoutubeComments == CommentMode.Learning;
+            CommentsHide.IsChecked = s.Settings.YoutubeComments == CommentMode.Hide;
+            CommentsHint.Text = CommentHints[s.Settings.YoutubeComments] +
+                " Commenter avatars and profile links are always off, and porn-spam bot comments are hidden.";
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -150,6 +183,10 @@ public partial class MainWindow : Window
             Mode = ModeFast.IsChecked == true ? RevealMode.Fast : RevealMode.Safe,
             BlockAdultSites = BlockSitesBox.IsChecked == true,
             AllowLiveStreams = AllowLiveBox.IsChecked == true,
+            Feeds = _feedBoxes.ToDictionary(f => f.Key, f => f.Value.IsChecked == true),
+            YoutubeComments = CommentsHide.IsChecked == true ? CommentMode.Hide
+                : CommentsLearning.IsChecked == true ? CommentMode.Learning
+                : CommentMode.Show,
             Enforce = EnforceBox.IsChecked == true,
             BlockIncognito = BlockIncognitoBox.IsChecked == true,
             BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,

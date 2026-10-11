@@ -26,12 +26,23 @@ Anyone with admin rights on a machine can defeat software running on it: they ca
 | 2 | Video, CSS backgrounds, adult-site blocklist | **done** |
 | 3 | Companion app: service, GUI, CLI, signed self-update | **done** |
 | 4 | USB unlock: flash-drive tier, recovery code | **done** |
-| 5 | Enforcement: force-install, policy, watchdog | **in progress** |
-| 6 | Feed toggles (YouTube/X/Reddit/…) + sites catalog | — |
+| 5 | Enforcement: force-install, policy, watchdog | **done** |
+| 6 | Feed toggles + sites catalog | **YouTube, Facebook done** |
 | 7 | Beyond the browser: DNS filtering, screen classifier | — |
 
 FIDO2/YubiKey (the uncopyable unlock tier) slots in behind the same interface as the
 flash-drive tier; see *The unlock key* below for what each tier actually guarantees.
+
+## Feeds
+
+Optional, per site, in the popup (under **Feeds**) or the desktop app. Hiding something never needs the key; showing it again does.
+
+- **YouTube:** home feed, Shorts (shelves, tab and sidebar entry; Shorts links open as normal videos), recommended videos, end screens.
+- **Facebook:** news feed, stories, Reels (reel links go home), the video tab.
+- **YouTube comments:** *Show*, *How-to only* or *Hide*. *How-to only* shows comments when YouTube files the video under Howto & Style, Education or Science & Technology, or when the title reads as a how-to ("how to", tutorial, DIY, fix, repair, …), so a big entertainment channel's one-off how-to still gets its comments. Everything else, including Shorts, has them hidden.
+- **Comment bots**, whatever the mode: big channels attract spam bots with explicit profile pictures and "look at my profile" comments that lead to porn. Commenter avatars are hidden, profile and outside links in comments can't be clicked (timestamps still work), and comments whose name or text look like that spam are removed, including names written in fancy Unicode fonts or lookalike letters.
+
+Feed rules live in `extension/sites/*.json`; a new site or a site redesign is a data change.
 
 ## Extension: build & load
 

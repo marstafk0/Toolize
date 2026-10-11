@@ -207,5 +207,78 @@ public sealed class SettingsOverlayTests
 
     [Fact]
     public void Unknown_fields_are_ignored() =>
-        Assert.Equal(Locked, SettingsPolicy.Overlay(Locked, Json("""{"somethingNew":1}""")));
+        Assert.Equal(Serialize(Locked), Serialize(SettingsPolicy.Overlay(Locked, Json("""{"somethingNew":1}"""))));
+
+    [Fact]
+    public void Feed_toggles_merge_key_by_key()
+    {
+        var before = Locked with { Feeds = new() { ["youtube.home"] = true, ["youtube.shorts"] = true } };
+        var after = SettingsPolicy.Overlay(before, Json("""{"feeds":{"facebook.feed":true}}"""));
+        Assert.True(after.Feeds["youtube.home"]); // left out, so untouched
+        Assert.True(after.Feeds["facebook.feed"]);
+        Assert.False(SettingsPolicy.IsWeakening(before, after));
+
+        var off = SettingsPolicy.Overlay(before, Json("""{"feeds":{"youtube.home":false}}"""));
+        Assert.True(SettingsPolicy.IsWeakening(before, off));
+    }
+
+    private static string Serialize(Settings s) => JsonSerializer.Serialize(s, Protocol.Json);
+}
+
+public sealed class FeedSettingsTests
+{
+    private static readonly Settings Hiding = Settings.Default with
+    {
+        Feeds = new() { ["youtube.home"] = true },
+        YoutubeComments = CommentMode.Learning,
+    };
+
+    [Fact]
+    public void Hiding_more_never_needs_the_key()
+    {
+        Assert.False(SettingsPolicy.IsWeakening(Settings.Default, Hiding));
+        Assert.False(SettingsPolicy.IsWeakening(Hiding, Hiding with { YoutubeComments = CommentMode.Hide }));
+        Assert.False(SettingsPolicy.IsWeakening(Hiding, Hiding with { Feeds = new() { ["youtube.home"] = true, ["facebook.feed"] = true } }));
+    }
+
+    [Fact]
+    public void Showing_a_feed_again_needs_the_key()
+    {
+        Assert.True(SettingsPolicy.IsWeakening(Hiding, Hiding with { Feeds = new() { ["youtube.home"] = false } }));
+        Assert.True(SettingsPolicy.IsWeakening(Hiding, Hiding with { Feeds = new() })); // dropping the key = off
+        Assert.Contains("showing the YouTube home feed again", SettingsPolicy.Weakenings(Hiding, Hiding with { Feeds = new() }));
+    }
+
+    [Theory]
+    [InlineData(CommentMode.Hide, CommentMode.Learning, true)]
+    [InlineData(CommentMode.Learning, CommentMode.Show, true)]
+    [InlineData(CommentMode.Show, CommentMode.Hide, false)]
+    public void Showing_more_comments_needs_the_key(CommentMode from, CommentMode to, bool weakening) =>
+        Assert.Equal(weakening, SettingsPolicy.IsWeakening(Hiding with { YoutubeComments = from }, Hiding with { YoutubeComments = to }));
+
+    [Fact]
+    public void Settings_saved_before_feeds_existed_still_load()
+    {
+        var old = JsonSerializer.Deserialize<Settings>("""{"enabled":true,"preset":"strict"}""", Protocol.Json)!;
+        Assert.Empty(old.Feeds);
+        Assert.Equal(CommentMode.Show, old.YoutubeComments);
+    }
+
+    [Fact]
+    public void The_catalog_is_the_extension_one()
+    {
+        var keys = FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key).ToList();
+        Assert.Equal("youtube", FeedCatalog.Sites[0].Id);
+        Assert.Contains("youtube.home", keys);
+        Assert.Contains("youtube.shorts", keys);
+        Assert.Contains("facebook.feed", keys);
+    }
+
+    [Fact]
+    public void The_wire_names_match_the_extension()
+    {
+        var json = JsonSerializer.Serialize(Hiding, Protocol.Json);
+        Assert.Contains("\"feeds\":{\"youtube.home\":true}", json);
+        Assert.Contains("\"youtubeComments\":\"learning\"", json);
+    }
 }

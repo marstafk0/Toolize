@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fake YouTube (Toolize feed tests)</title>
+  <style>body { font: 14px sans-serif; } ytd-comments { display: block; }</style>
+</head>
+<body>
+  <!-- Just enough of YouTube's element names for the feed rules and the comment guard. -->
+  <ytd-mini-guide-entry-renderer aria-label="Shorts" id="guide-shorts">Shorts</ytd-mini-guide-entry-renderer>
+  <ytd-browse page-subtype="home">
+    <div id="primary"><ytd-rich-grid-renderer id="grid">recommended videos</ytd-rich-grid-renderer></div>
+  </ytd-browse>
+  <ytd-reel-shelf-renderer id="shorts-shelf">shorts shelf</ytd-reel-shelf-renderer>
+  <ytd-watch-flexy><div id="related">related videos</div></ytd-watch-flexy>
+
+  <div id="movie_player"></div>
+
+  <ytd-comments id="comments">
+    <div id="sections">
+      <ytd-comment-thread-renderer id="t-normal">
+        <ytd-comment-view-model>
+          <div id="author-thumbnail"><button id="author-thumbnail-button" aria-label="@HandyDan"><yt-img-shadow><img id="img" width="40" height="40" src="/img/40x40/avatar-dan.png" /></yt-img-shadow></button></div>
+          <a id="author-text" href="/@HandyDan">@HandyDan</a>
+          <yt-attributed-string id="content-text">Great tip at <a id="ts" href="/watch?v=learn1&amp;t=95">1:35</a>, thanks!</yt-attributed-string>
+        </ytd-comment-view-model>
+      </ytd-comment-thread-renderer>
+      <ytd-comment-thread-renderer id="t-bot-name">
+        <ytd-comment-view-model>
+          <div id="author-thumbnail"><button id="author-thumbnail-button" aria-label="@𝓢𝓮𝔁𝔂-Аnna-22"><yt-img-shadow><img id="img" width="40" height="40" src="/img/40x40/avatar-bot.png" /></yt-img-shadow></button></div>
+          <a id="author-text" href="/@sexy-anna">@𝓢𝓮𝔁𝔂-Аnna-22</a>
+          <yt-attributed-string id="content-text">Nice video</yt-attributed-string>
+        </ytd-comment-view-model>
+      </ytd-comment-thread-renderer>
+      <ytd-comment-thread-renderer id="t-bot-text">
+        <ytd-comment-view-model>
+          <div id="author-thumbnail"><button id="author-thumbnail-button" aria-label="@user-xk29"><yt-img-shadow><img id="img" width="40" height="40" src="/img/40x40/avatar-x.png" /></yt-img-shadow></button></div>
+          <a id="author-text" href="/@user-xk29">@user-xk29</a>
+          <yt-attributed-string id="content-text">Look at my profile, you won't regret it</yt-attributed-string>
+        </ytd-comment-view-model>
+      </ytd-comment-thread-renderer>
+    </div>
+  </ytd-comments>
+
+  <script>
+    // The player's response, as YouTube's own player hands it out.
+    const VIDEOS = {
+      learn1: { title: 'Fixing a leaky kitchen faucet', category: 'Howto & Style' },
+      learn2: { title: 'How to wire a light switch', category: 'Entertainment' },
+      ent1: { title: 'Funniest cat moments of the year', category: 'Entertainment' },
+    };
+    document.getElementById('movie_player').getPlayerResponse = () => {
+      const id = new URLSearchParams(location.search).get('v');
+      const v = VIDEOS[id] ?? { title: 'Untitled', category: 'People & Blogs' };
+      return { videoDetails: { videoId: id, title: v.title }, microformat: { playerMicroformatRenderer: { category: v.category } } };
+    };
+    // In-app navigation, like YouTube's.
+    window.goTo = (v) => history.pushState(null, '', `/watch?v=${v}`);
+  </script>
+</body>
+</html>

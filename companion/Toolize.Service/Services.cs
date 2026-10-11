@@ -34,8 +34,11 @@ public sealed class ExtensionTracker
 {
     private readonly object _gate = new();
     private ExtensionState _state = new();
-    /// <summary>Last check-in per browser. Key "" is an extension too old to say which.</summary>
-    private readonly Dictionary<string, DateTimeOffset> _seen = new();
+    /// <summary>
+    /// Last check-in per (browser, extension id). Browser "" is an extension too old to
+    /// say which; id "" means the native host couldn't tell.
+    /// </summary>
+    private readonly Dictionary<(string Browser, string Id), DateTimeOffset> _seen = new();
 
     /// <summary>Extension counts as connected only if it checked in recently.</summary>
     private static readonly TimeSpan Stale = TimeSpan.FromSeconds(90);
@@ -47,7 +50,10 @@ public sealed class ExtensionTracker
             lock (_gate)
             {
                 var live = _state.LastSeen is { } seen && Fresh(seen);
-                var browsers = _seen.Where(p => p.Key != "" && Fresh(p.Value)).Select(p => p.Key).Order().ToList();
+                var browsers = _seen
+                    .Where(p => p.Key.Browser != "" && Fresh(p.Value))
+                    .Select(p => p.Key.Id == AppInfo.StoreExtensionId ? p.Key.Browser : $"{p.Key.Browser} (dev build)")
+                    .Distinct().Order().ToList();
                 return _state with { Connected = live, Browsers = browsers };
             }
         }
@@ -57,27 +63,32 @@ public sealed class ExtensionTracker
     /// Whether the extension in this particular browser is reporting in. One browser
     /// checking in says nothing about another: Chrome being protected must not cover
     /// for Edge with the extension disabled.
+    ///
+    /// With <paramref name="extensionId"/>, only that build counts. Under enforcement that
+    /// is the store copy: an unpacked dev copy reports in just the same, but nothing stops
+    /// anyone removing it, so it must not count as protection.
     /// </summary>
-    public bool IsConnected(string browser)
+    public bool IsConnected(string browser, string? extensionId = null)
     {
         lock (_gate)
         {
-            if (_seen.TryGetValue(browser, out var seen) && Fresh(seen)) return true;
             // An extension from before per-browser reporting can't say where it runs.
             // Trust it for any browser until it updates, as the watchdog always did.
-            return _seen.TryGetValue("", out var unknown) && Fresh(unknown);
+            return _seen.Any(p => (p.Key.Browser == browser || p.Key.Browser == "")
+                                  && (extensionId is null || p.Key.Id == extensionId)
+                                  && Fresh(p.Value));
         }
     }
 
     private static bool Fresh(DateTimeOffset seen) => DateTimeOffset.UtcNow - seen < Stale;
 
-    public void Hello(string? version, string? browser)
+    public void Hello(string? version, string? browser, string? extensionId)
     {
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
             _state = _state with { Version = version, LastSeen = now };
-            _seen[Normalize(browser)] = now;
+            _seen[(Normalize(browser), extensionId ?? "")] = now;
         }
     }
 
@@ -93,7 +104,7 @@ public sealed class ExtensionTracker
                 Blocked = args.Blocked,
                 Checked = args.Checked,
             };
-            _seen[Normalize(args.Browser)] = now;
+            _seen[(Normalize(args.Browser), args.ExtensionId ?? "")] = now;
         }
     }
 

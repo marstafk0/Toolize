@@ -167,7 +167,7 @@ public sealed class RequestHandler(
     private Response ExtensionHello(Request request)
     {
         var args = request.ArgsAs<ExtensionHelloArgs>();
-        extension.Hello(args?.Version, args?.Browser);
+        extension.Hello(args?.Version, args?.Browser, args?.ExtensionId);
         log.LogInformation("extension {Version} connected from {Browser}", args?.Version, args?.Browser ?? "an unknown browser");
         return Response.Success(request.Id, new { settings = store.Settings, service = AppInfo.Version, enforced = store.Settings.Enforce });
     }

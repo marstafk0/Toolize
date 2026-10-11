@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Toolize.Core;
 
 // Native messaging host: the bridge between the browser extension and the service.
@@ -14,6 +15,14 @@ using Toolize.Core;
 // closed stdin rather than treating that as an error.
 
 var dev = args.Contains("--dev");
+// Chrome passes the caller's origin ("chrome-extension://<id>/") as the first argument.
+// It comes from the browser, not the extension, so it can't be faked by the extension
+// and tells the service which build is reporting in: the store copy that enforcement
+// pins in place, or an unpacked dev copy that anyone can remove.
+var callerId = args.Select(a => a.StartsWith("chrome-extension://", StringComparison.Ordinal)
+        ? a["chrome-extension://".Length..].TrimEnd('/')
+        : null)
+    .FirstOrDefault(id => !string.IsNullOrEmpty(id));
 var client = new PipeClient(Protocol.PipeName(dev));
 var stdin = Console.OpenStandardInput();
 var stdout = Console.OpenStandardOutput();
@@ -28,7 +37,7 @@ while (true)
     {
         var request = JsonSerializer.Deserialize<Request>(message, Protocol.Json)
                       ?? throw new InvalidOperationException("unreadable message");
-        response = await client.SendAsync(request);
+        response = await client.SendAsync(StampCaller(request, callerId));
     }
     catch (TimeoutException)
     {
@@ -42,6 +51,17 @@ while (true)
     }
 
     await WriteMessageAsync(stdout, JsonSerializer.Serialize(response, Protocol.Json));
+}
+
+// Overwrites any extensionId the extension put in its args with the one Chrome reported.
+static Request StampCaller(Request request, string? callerId)
+{
+    if (request.Verb is not (Verbs.ExtensionHello or Verbs.ExtensionHeartbeat)) return request;
+    var args = request.Args is { ValueKind: JsonValueKind.Object } a
+        ? JsonNode.Parse(a.GetRawText())!.AsObject()
+        : new JsonObject();
+    args["extensionId"] = callerId;
+    return request with { Args = JsonSerializer.SerializeToElement(args) };
 }
 
 static async Task<string?> ReadMessageAsync(Stream input)

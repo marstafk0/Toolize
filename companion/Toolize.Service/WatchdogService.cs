@@ -85,7 +85,9 @@ public sealed class WatchdogService(
             var running = Running([process]);
             if (running.Count == 0) continue;
             anyManaged = true;
-            if (!extension.IsConnected(browser)) silent.Add((display, running));
+            // The watchdog only runs under enforcement, where the store copy is the one
+            // pinned in place; a dev copy checking in doesn't count.
+            if (!extension.IsConnected(browser, AppInfo.StoreExtensionId)) silent.Add((display, running));
         }
         var unmanagedRunning = Running(Unmanaged);
 
@@ -103,7 +105,7 @@ public sealed class WatchdogService(
         if (unmanagedRunning.Count > 0)
             reasons.Add($"{string.Join(", ", unmanagedRunning.Select(p => p.ProcessName).Distinct())} can't run Toolize");
         if (silent.Count > 0)
-            reasons.Add($"the extension isn't reporting in from {string.Join(", ", silent.Select(s => s.Display))}");
+            reasons.Add($"the Web Store extension isn't running in {string.Join(", ", silent.Select(s => s.Display))}");
         var reason = string.Join("; ", reasons);
         Status = $"unprotected for {elapsed.TotalSeconds:F0}s — {reason}";
 

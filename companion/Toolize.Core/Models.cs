@@ -35,7 +35,10 @@ public sealed record ExtensionState
     public DateTimeOffset? LastSeen { get; init; }
     public int Blocked { get; init; }
     public int Checked { get; init; }
-    /// <summary>Which browsers have checked in recently — the watchdog judges each one separately.</summary>
+    /// <summary>
+    /// Which browsers have checked in recently, e.g. "brave" for the store copy or
+    /// "brave (dev build)" for anything else. The watchdog judges each one separately.
+    /// </summary>
     public IReadOnlyList<string> Browsers { get; init; } = [];
 }
 
@@ -70,6 +73,7 @@ public sealed record RevokeKeyArgs(string Id);
 public sealed record RecoverArgs(string Code);
 
 /// <summary>Browser is "chrome", "edge" or "brave"; null from extensions older than 0.5.3.</summary>
-public sealed record ExtensionHelloArgs(string Version, string? Browser = null);
+/// <param name="ExtensionId">Set by the native host from what Chrome reports, never by the extension.</param>
+public sealed record ExtensionHelloArgs(string Version, string? Browser = null, string? ExtensionId = null);
 
-public sealed record ExtensionHeartbeatArgs(string Version, int Blocked, int Checked, string? Browser = null);
+public sealed record ExtensionHeartbeatArgs(string Version, int Blocked, int Checked, string? Browser = null, string? ExtensionId = null);

@@ -142,6 +142,37 @@ try {
   check('flagged videos are paused, except live ones', blockedVideos.length === 4 && blockedVideos.every((i) => i.paused === !i.live),
     JSON.stringify(blockedVideos.map((i) => `${i.live ? 'live' : 'vod'}:${i.paused}`)));
   check('picture-in-picture is refused', (await page.evaluate(() => window.__tryPip())) === 'NotAllowedError');
+  check('every video carries disablepictureinpicture (what the right-click menu checks)',
+    await page.evaluate(() => [...document.querySelectorAll('#videos video')].every((v) => v.hasAttribute('disablepictureinpicture'))));
+
+  // ---- escape routes: no right-click menu or drag on anything blurred
+  const escape = await page.evaluate(() => {
+    const fire = (el, type) => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, composed: true });
+      el.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const flagged = document.querySelector('#videos video[data-tz="blocked"]');
+    const clean = document.querySelector('#videos video[data-tz="clean"]');
+    const flaggedImg = document.querySelector('img[data-tz="blocked"]');
+    return {
+      menuOnBlockedVideo: fire(flagged, 'contextmenu'),
+      menuOnCleanVideo: fire(clean, 'contextmenu'),
+      dragBlockedImage: fire(flaggedImg, 'dragstart'),
+    };
+  });
+  check('right-click menu blocked on a blurred video, allowed on a clean one',
+    escape.menuOnBlockedVideo && !escape.menuOnCleanVideo, JSON.stringify(escape));
+  check('a blurred image cannot be dragged out', escape.dragBlockedImage);
+
+  // ---- live streams: exempt only when allowed (dev builds treat localhost as a live site)
+  const liveState = () => page.evaluate(() => document.querySelector('#videos video[data-live]').getAttribute('data-tz'));
+  await setSettings({ allowLiveStreams: true });
+  const exempt = await waitFor(async () => (await liveState()) === 'skip', { timeout: 10_000 });
+  await setSettings({ allowLiveStreams: false });
+  const refiltered = await waitFor(async () => (await liveState()) === 'blocked', { timeout: 15_000 });
+  check('allowLiveStreams leaves a live stream alone, and turning it off filters it again',
+    !!exempt && !!refiltered, `${exempt ? 'exempt' : 'NOT exempt'}, then ${await liveState()}`);
 
   // ---- phase 2: CSS backgrounds
   await page.evaluate(() => document.querySelector('.bg').scrollIntoView({ block: 'center' }));

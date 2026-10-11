@@ -17,6 +17,11 @@ public sealed record Settings
     public Preset Preset { get; init; } = Preset.Balanced;
     public RevealMode Mode { get; init; } = RevealMode.Safe;
     public bool BlockAdultSites { get; init; } = true;
+    /// <summary>
+    /// Leave live streams on YouTube, Twitch, Kick and Rumble alone: not sampled, not
+    /// blurred, not paused. Off by default; turning it on needs the key.
+    /// </summary>
+    public bool AllowLiveStreams { get; init; }
 
     // ---- enforcement (phase 5). Off by default: enforcement changes the browser for
     // every profile on the machine, so it is something the user turns on deliberately.
@@ -52,6 +57,7 @@ public static class SettingsPolicy
         || Strength(after.Preset) < Strength(before.Preset)
         || (before.Mode == RevealMode.Safe && after.Mode == RevealMode.Fast)
         || (before.BlockAdultSites && !after.BlockAdultSites)
+        || (!before.AllowLiveStreams && after.AllowLiveStreams)
         || (before.Enforce && !after.Enforce)
         || (before.BlockIncognito && !after.BlockIncognito)
         || (before.BlockOtherExtensions && !after.BlockOtherExtensions)
@@ -74,6 +80,7 @@ public static class SettingsPolicy
         if (Strength(after.Preset) < Strength(before.Preset)) list.Add($"lowering sensitivity to {after.Preset}");
         if (before.Mode == RevealMode.Safe && after.Mode == RevealMode.Fast) list.Add("switching to detect-then-blur");
         if (before.BlockAdultSites && !after.BlockAdultSites) list.Add("turning off adult-site blocking");
+        if (!before.AllowLiveStreams && after.AllowLiveStreams) list.Add("allowing live streams unfiltered");
         if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
         if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");
         if (before.BlockOtherExtensions && !after.BlockOtherExtensions) list.Add("re-allowing other extensions");

@@ -94,6 +94,8 @@
                         <TextBlock Style="{StaticResource Hint}" x:Name="ModeHint" />
 
                         <CheckBox x:Name="BlockSitesBox" Margin="0,14,0,0" Content="Block known adult sites before they load" Click="OnSettingChanged" />
+                        <CheckBox x:Name="AllowLiveBox" Margin="0,8,0,0" Content="Don't filter live streams on YouTube, Twitch, Kick and Rumble" Click="OnSettingChanged" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Live video plays untouched on those four sites. Turning this on needs your key." />
                     </StackPanel>
                 </Border>
 

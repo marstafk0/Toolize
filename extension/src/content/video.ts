@@ -1,5 +1,5 @@
 import { decide, PRESETS } from '../shared/policy';
-import type { Settings } from '../shared/settings';
+import { isLiveSite, type Settings } from '../shared/settings';
 import { ClassifyClient, isFetchFailure } from './client';
 import type { Stamper, State } from './state';
 
@@ -57,6 +57,8 @@ interface Track {
    */
   live?: boolean;
   lastDuration?: number;
+  /** Exempt as a live stream on a live-stream site (allowLiveStreams). */
+  exempt?: boolean;
 }
 
 /** The video's pixels can't be read at all; retrying won't change that. */
@@ -120,6 +122,7 @@ export class VideoWatcher {
       return this.stamper.set(video, 'off');
     }
 
+    lockDown(video);
     let t = this.tracks.get(video);
     const src = video.currentSrc || video.src;
     if (!t || t.src !== src) {
@@ -185,6 +188,7 @@ export class VideoWatcher {
    */
   private async tick(): Promise<void> {
     if (document.hidden || !this.settings?.enabled) return;
+    this.exemptLive();
     const now = performance.now();
     // When the classifier is saturated, sample one video at a time: live frames must
     // not starve the images and backgrounds waiting behind them.
@@ -194,7 +198,7 @@ export class VideoWatcher {
       .filter((v) => v.videoWidth >= MIN_SIDE && v.videoHeight >= MIN_SIDE)
       .filter((v) => {
         const t = this.tracks.get(v);
-        if (!t || t.dead || now < t.nextAt) return false;
+        if (!t || t.dead || t.exempt || now < t.nextAt) return false;
         return !v.paused || t.stillAt !== v.currentTime;
       })
       .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)
@@ -277,12 +281,38 @@ export class VideoWatcher {
   }
 
   /**
+   * With allowLiveStreams on, live video on the live-stream sites is left alone: shown,
+   * never sampled or paused. Re-checked every tick, since YouTube reuses one <video>
+   * as you move between a stream and a regular video.
+   */
+  private exemptLive(): void {
+    const allow = !!this.settings?.allowLiveStreams && isLiveSite(location.hostname);
+    for (const v of this.candidates) {
+      const t = this.tracks.get(v);
+      if (!t) continue;
+      const exempt = allow && isLive(v);
+      if (exempt) {
+        t.exempt = true;
+        this.stamper.set(v, 'skip'); // no-op when already skip
+      } else if (t.exempt) {
+        t.exempt = false;
+        // Back to a normal video: judge it from scratch.
+        t.recent = [];
+        t.cleanStreak = 0;
+        t.every = FIRST_SAMPLE_MS;
+        t.nextAt = 0;
+        this.stamper.set(v, this.pendingState());
+      }
+    }
+  }
+
+  /**
    * A live stream's duration is Infinity (HLS) or keeps growing as the live edge moves
    * (YouTube's MSE player). A video on demand has a fixed one.
    */
   private noteDuration(video: HTMLVideoElement, t: Track): void {
     const d = video.duration;
-    if (d === Infinity) t.live = true;
+    if (isLive(video)) t.live = true;
     else if (!video.paused && t.lastDuration !== undefined && d > t.lastDuration + 0.5) t.live = true;
     if (Number.isFinite(d)) t.lastDuration = d;
   }
@@ -311,6 +341,7 @@ export class VideoWatcher {
   }
 
   private setVerdict(video: HTMLVideoElement, t: Track, verdict: State): void {
+    if (t.exempt) return; // a sample that was already in flight when the exemption began
     t.verdict = verdict;
     this.stamper.set(video, verdict);
     if (verdict === 'blocked' && !t.live) video.pause();
@@ -319,6 +350,25 @@ export class VideoWatcher {
   private pendingState(): State {
     return this.settings?.mode === 'fast' ? 'fast' : 'pending';
   }
+}
+
+/**
+ * Live, as far as the page can tell: HLS/MSE live streams report an infinite duration
+ * (Twitch, Kick, most players); YouTube's doesn't, so its player's own answer is
+ * mirrored onto the element by the MAIN-world hook.
+ */
+function isLive(video: HTMLVideoElement): boolean {
+  return video.duration === Infinity || video.hasAttribute('data-tz-live');
+}
+
+/**
+ * Picture-in-Picture and remote playback show the video outside the page, where the
+ * blur can't follow. The JS API is already refused in the MAIN world; the attributes
+ * are what the browser's own menus (right-click, media controls) check.
+ */
+function lockDown(video: HTMLVideoElement): void {
+  if (!video.hasAttribute('disablepictureinpicture')) video.setAttribute('disablepictureinpicture', '');
+  if (!video.hasAttribute('disableremoteplayback')) video.setAttribute('disableremoteplayback', '');
 }
 
 /** Throws SecurityError when the video taints the canvas (cross-origin, no CORS). */

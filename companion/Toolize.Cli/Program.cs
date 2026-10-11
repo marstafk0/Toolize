@@ -183,7 +183,7 @@ async Task SetAsync(string[] pair)
     {
         Console.Error.WriteLine("""
             usage: toolize set <setting> <value>
-              enabled | blockAdultSites | enforce | blockIncognito | blockOtherExtensions | blockDevTools   on|off
+              enabled | blockAdultSites | allowLiveStreams | enforce | blockIncognito | blockOtherExtensions | blockDevTools   on|off
               preset   strict|balanced|relaxed
               mode     safe|fast
               watchdog off|warn|close
@@ -198,6 +198,7 @@ async Task SetAsync(string[] pair)
         "preset" => current with { Preset = Enum.Parse<Preset>(value, true) },
         "mode" => current with { Mode = Enum.Parse<RevealMode>(value, true) },
         "blockadultsites" => current with { BlockAdultSites = ParseBool(value) },
+        "allowlivestreams" => current with { AllowLiveStreams = ParseBool(value) },
         "enforce" => current with { Enforce = ParseBool(value) },
         "blockincognito" => current with { BlockIncognito = ParseBool(value) },
         "blockotherextensions" => current with { BlockOtherExtensions = ParseBool(value) },

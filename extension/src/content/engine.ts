@@ -20,6 +20,16 @@ const OBSERVE_OPTS: MutationObserverInit = {
 const MEDIA_EVENTS = ['load', 'error', 'loadeddata', 'play', 'seeked', 'emptied', 'encrypted'];
 
 /**
+ * Ways to get a blurred picture or video out of the page, where the blur can't follow:
+ * the right-click menu (Picture-in-Picture, Save as, Open in new tab, Copy address),
+ * dragging it into another tab or onto the desktop, and Picture-in-Picture entered by
+ * any route that slipped past the attributes.
+ */
+const ESCAPE_EVENTS = ['contextmenu', 'dragstart', 'enterpictureinpicture'];
+/** States where the media is on screen as itself; anything else is (or should be) hidden. */
+const SHOWN = new Set(['clean', 'skip', 'off', 'fast']);
+
+/**
  * Discovery for one document (frame): finds media as it appears and routes it to the
  * image, video and background watchers, which share one classification client.
  *
@@ -45,6 +55,19 @@ export class BlurEngine {
   );
 
   private readonly mo = new MutationObserver((records) => this.onMutations(records));
+
+  private readonly onEscape = (e: Event): void => {
+    const el = e.composedPath()[0] as Element | undefined;
+    if (!el || (el.localName !== 'img' && el.localName !== 'video')) return;
+    if (e.type === 'enterpictureinpicture') {
+      // Never wanted: a video in a PiP window outlives any later verdict.
+      void document.exitPictureInPicture?.().catch(() => {});
+      return;
+    }
+    if (SHOWN.has(el.getAttribute('data-tz') ?? '')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
   private readonly onMediaEvent = (e: Event): void => {
     const el = e.target as Element;
     if (el.localName === 'img') {
@@ -62,6 +85,7 @@ export class BlurEngine {
   start(): void {
     this.mo.observe(document, OBSERVE_OPTS);
     for (const type of MEDIA_EVENTS) document.addEventListener(type, this.onMediaEvent, true);
+    for (const type of ESCAPE_EVENTS) window.addEventListener(type, this.onEscape, true);
     this.backgrounds.start();
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => this.sweepShadowRoots(document), { once: true });
@@ -74,6 +98,7 @@ export class BlurEngine {
     this.stopped = true;
     this.mo.disconnect();
     for (const type of MEDIA_EVENTS) document.removeEventListener(type, this.onMediaEvent, true);
+    for (const type of ESCAPE_EVENTS) window.removeEventListener(type, this.onEscape, true);
     this.images.stop();
     this.videos.stop();
     this.backgrounds.stop();
@@ -161,6 +186,8 @@ export class BlurEngine {
     }
     this.mo.observe(root, OBSERVE_OPTS);
     for (const type of MEDIA_EVENTS) root.addEventListener(type, this.onMediaEvent, true); // events don't cross the boundary
+    // Closed roots hide their insides from composedPath() out here; listen inside too.
+    for (const type of ESCAPE_EVENTS) root.addEventListener(type, this.onEscape, true);
     root.querySelectorAll('img').forEach((img) => this.images.consider(img));
     root.querySelectorAll('video').forEach((v) => this.videos.consider(v));
     root.querySelectorAll('[data-tz-shadow]').forEach((h) => this.attachRoot(h));

@@ -71,6 +71,7 @@ public partial class MainWindow : Window
             ModeSafe.IsChecked = s.Settings.Mode == RevealMode.Safe;
             ModeFast.IsChecked = s.Settings.Mode == RevealMode.Fast;
             BlockSitesBox.IsChecked = s.Settings.BlockAdultSites;
+            AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -148,6 +149,7 @@ public partial class MainWindow : Window
                 : Preset.Balanced,
             Mode = ModeFast.IsChecked == true ? RevealMode.Fast : RevealMode.Safe,
             BlockAdultSites = BlockSitesBox.IsChecked == true,
+            AllowLiveStreams = AllowLiveBox.IsChecked == true,
             Enforce = EnforceBox.IsChecked == true,
             BlockIncognito = BlockIncognitoBox.IsChecked == true,
             BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,

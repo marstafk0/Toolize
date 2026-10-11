@@ -154,6 +154,13 @@ public sealed class EnforcementWeakeningTests
         Assert.True(SettingsPolicy.IsWeakening(On, On with { BlockDevTools = false }));
     }
 
+    [Fact]
+    public void Allowing_live_streams_needs_the_key_and_filtering_them_again_does_not()
+    {
+        Assert.True(SettingsPolicy.IsWeakening(On, On with { AllowLiveStreams = true }));
+        Assert.False(SettingsPolicy.IsWeakening(On with { AllowLiveStreams = true }, On));
+    }
+
     [Theory]
     [InlineData(Watchdog.Close, Watchdog.Warn, true)]
     [InlineData(Watchdog.Warn, Watchdog.Off, true)]

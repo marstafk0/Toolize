@@ -72,6 +72,38 @@ import blurCss from '../shared/blur.css';
     return root;
   };
 
+  // YouTube's player knows whether it is playing a live stream; nothing in the DOM says
+  // so reliably (duration is finite and barely moves, and the page metadata is gone
+  // after in-app navigation). Mirror its answer onto the <video> for the isolated
+  // world, which only honours it on the live-stream sites.
+  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+    setInterval(() => {
+      const player = document.getElementById('movie_player') as (HTMLElement & { getVideoData?: () => { isLive?: boolean } }) | null;
+      const v = player?.querySelector('video');
+      if (!v) return;
+      let live = false;
+      try {
+        live = player?.getVideoData?.()?.isLive === true;
+      } catch {
+        /* player not ready */
+      }
+      if (live !== v.hasAttribute('data-tz-live')) v.toggleAttribute('data-tz-live', live);
+    }, 1000);
+  }
+
+  // Document Picture-in-Picture opens a separate window the content scripts never see.
+  const dpip = (window as unknown as { documentPictureInPicture?: { requestWindow?: unknown } }).documentPictureInPicture;
+  if (dpip) {
+    try {
+      Object.defineProperty(dpip, 'requestWindow', {
+        configurable: true,
+        value: () => Promise.reject(new DOMException('Picture-in-Picture is disabled', 'NotAllowedError')),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Picture-in-Picture and remote playback render the video OUTSIDE the page, where our
   // CSS filter doesn't apply — a blurred video would pop out clean. Refuse both.
   const video = window.HTMLVideoElement?.prototype;

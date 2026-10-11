@@ -12,6 +12,8 @@ export interface Settings {
   mode: RevealMode;
   /** Block known adult sites at the network layer, before anything loads. */
   blockAdultSites: boolean;
+  /** Leave live streams on the LIVE_SITES alone (set in the desktop app; needs the key). */
+  allowLiveStreams: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -19,7 +21,17 @@ export const DEFAULT_SETTINGS: Settings = {
   preset: 'balanced',
   mode: 'safe',
   blockAdultSites: true,
+  allowLiveStreams: false,
 };
+
+/** Sites whose live streams `allowLiveStreams` exempts, matched with their subdomains. */
+export const LIVE_SITES = ['youtube.com', 'twitch.tv', 'kick.com', 'rumble.com'];
+
+export function isLiveSite(hostname: string): boolean {
+  // Dev builds also count the e2e test server, so the exemption can be tested.
+  if (__DEV__ && (hostname === 'localhost' || hostname === '127.0.0.1')) return true;
+  return LIVE_SITES.some((d) => hostname === d || hostname.endsWith(`.${d}`));
+}
 
 const KEY = 'settings';
 

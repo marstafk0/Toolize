@@ -77,18 +77,16 @@ about what each tier actually guarantees.
   Each toggle = a named CSS ruleset (`hide` selectors, optional `paths` regex, `notice`
   text, `redirect`) in `extension/sites/*.json`, so new sites are data, not code. The
   companion embeds the same files (`FeedCatalog`) to draw its checkboxes. Settings key
-  `feeds["<site>.<toggle>"]`; turning one off is weakening. Done: YouTube (home, Shorts
-  + `/shorts/ID` → `/watch?v=ID`, recommendations, end screens) and Facebook (news feed,
-  stories, reels, video tab — selectors unverified against a logged-in account). Still
-  to come: X, Reddit, Instagram, LinkedIn, TikTok.
-- **YouTube comments** (`youtubeComments`: show < learning < hide). "learning" shows
-  comments only when the uploader's category is Howto & Style / Education / Science &
-  Technology, OR the title reads as a how-to ("how to", tutorial, DIY, fix, repair…).
-  The title rule is what handles a big entertainment channel's one-off how-to. Shorts,
-  posts and unknown videos stay hidden (fail safe). The MAIN-world hook mirrors the
-  player's response (id, title, category) onto `<html data-tz-yt-meta>`, since the
-  page's initial copy goes stale after in-app navigation.
-- **Comment-bot shield** (always on, every mode): porn-spam bots in big channels'
+  `feeds["<site>.<toggle>"]`; turning one off is weakening. The protection master
+  switch (`enabled`) turns all feed control and the bot shield off too. Done: YouTube
+  (home, Shorts + `/shorts/ID` → `/watch?v=ID`, recommendations, comments, end screens)
+  and Facebook (news feed = the whole `div[role=main]` on the home path, since its inner
+  markup is obfuscated; stories, reels, video tab — unverified against a logged-in
+  account). Still to come: X, Reddit, Instagram, LinkedIn, TikTok.
+- **YouTube comments** show by default; hiding them is the `youtube.comments` toggle.
+  (A "how-to videos only" mode keyed on category + title was built in 0.7.0 and dropped
+  at the user's request in 0.7.1; old settings carrying `youtubeComments` still load.)
+- **Comment-bot shield** (on whenever protection is on): porn-spam bots in big channels'
   comments lure with a sexual avatar and "look at my profile", and churn faster than
   any blocklist. So commenter avatars are hidden (they're under the 48px classify
   threshold anyway), profile/channel/external links in comments are made unclickable

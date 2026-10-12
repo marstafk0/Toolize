@@ -37,10 +37,10 @@ flash-drive tier; see *The unlock key* below for what each tier actually guarant
 
 Optional, per site, in the popup (under **Feeds**) or the desktop app. Hiding something never needs the key; showing it again does.
 
-- **YouTube:** home feed, Shorts (shelves, tab and sidebar entry; Shorts links open as normal videos), recommended videos, end screens.
-- **Facebook:** news feed, stories, Reels (reel links go home), the video tab.
-- **YouTube comments:** *Show*, *How-to only* or *Hide*. *How-to only* shows comments when YouTube files the video under Howto & Style, Education or Science & Technology, or when the title reads as a how-to ("how to", tutorial, DIY, fix, repair, …), so a big entertainment channel's one-off how-to still gets its comments. Everything else, including Shorts, has them hidden.
-- **Comment bots**, whatever the mode: big channels attract spam bots with explicit profile pictures and "look at my profile" comments that lead to porn. Commenter avatars are hidden, profile and outside links in comments can't be clicked (timestamps still work), and comments whose name or text look like that spam are removed, including names written in fancy Unicode fonts or lookalike letters.
+- **YouTube:** home feed, Shorts (shelves, tab and sidebar entry; Shorts links open as normal videos), recommended videos, comments, end screens.
+- **Facebook:** news feed (the whole middle of the home page), stories, Reels (reel links go home), the video tab.
+- Turning protection off turns all of this off too.
+- **Comment bots**, whenever protection is on: big channels attract spam bots with explicit profile pictures and "look at my profile" comments that lead to porn. Commenter avatars are hidden, profile and outside links in comments can't be clicked (timestamps still work), and comments whose name or text look like that spam are removed, including names written in fancy Unicode fonts or lookalike letters.
 
 Feed rules live in `extension/sites/*.json`; a new site or a site redesign is a data change.
 

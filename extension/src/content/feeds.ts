@@ -37,9 +37,10 @@ export class FeedHider {
     if (!this.settings) return;
     this.href = location.href;
     const path = location.pathname + location.search;
-    const on = this.site.toggles.filter(
-      (t) => this.settings!.feeds?.[feedKey(this.site, t)] && (!t.paths || new RegExp(t.paths).test(path)),
-    );
+    // Protection off turns feed control off too.
+    const on = this.settings.enabled
+      ? this.site.toggles.filter((t) => this.settings!.feeds?.[feedKey(this.site, t)] && (!t.paths || new RegExp(t.paths).test(path)))
+      : [];
 
     for (const t of on) {
       if (!t.redirect) continue;

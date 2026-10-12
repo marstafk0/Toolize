@@ -14,8 +14,6 @@
   <ytd-reel-shelf-renderer id="shorts-shelf">shorts shelf</ytd-reel-shelf-renderer>
   <ytd-watch-flexy><div id="related">related videos</div></ytd-watch-flexy>
 
-  <div id="movie_player"></div>
-
   <ytd-comments id="comments">
     <div id="sections">
       <ytd-comment-thread-renderer id="t-normal">
@@ -42,20 +40,5 @@
     </div>
   </ytd-comments>
 
-  <script>
-    // The player's response, as YouTube's own player hands it out.
-    const VIDEOS = {
-      learn1: { title: 'Fixing a leaky kitchen faucet', category: 'Howto & Style' },
-      learn2: { title: 'How to wire a light switch', category: 'Entertainment' },
-      ent1: { title: 'Funniest cat moments of the year', category: 'Entertainment' },
-    };
-    document.getElementById('movie_player').getPlayerResponse = () => {
-      const id = new URLSearchParams(location.search).get('v');
-      const v = VIDEOS[id] ?? { title: 'Untitled', category: 'People & Blogs' };
-      return { videoDetails: { videoId: id, title: v.title }, microformat: { playerMicroformatRenderer: { category: v.category } } };
-    };
-    // In-app navigation, like YouTube's.
-    window.goTo = (v) => history.pushState(null, '', `/watch?v=${v}`);
-  </script>
 </body>
 </html>

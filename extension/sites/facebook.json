@@ -6,11 +6,12 @@
     {
       "id": "feed",
       "label": "News feed",
-      "hint": "The home feed. Groups, profiles, Messenger and Marketplace still work.",
+      "hint": "The whole middle of the home page. Groups, profiles, Messenger and Marketplace still work.",
       "paths": "^/(home\\.php)?(\\?.*)?$",
       "hide": [
-        "div[role=\"main\"] div[role=\"feed\"]",
-        "div[role=\"main\"] [data-pagelet^=\"FeedUnit\"]"
+        "div[role=\"main\"] > *",
+        "div[role=\"feed\"]",
+        "[data-pagelet^=\"FeedUnit\"]"
       ],
       "notice": {
         "at": "div[role=\"main\"]",

@@ -26,13 +26,6 @@ public partial class MainWindow : Window
         [Preset.Relaxed] = "Only clear explicit content. Fewer false positives.",
     };
 
-    private static readonly Dictionary<CommentMode, string> CommentHints = new()
-    {
-        [CommentMode.Show] = "Comments show on every video.",
-        [CommentMode.Learning] = "Comments show on how-to, DIY and learning videos (by YouTube category or a how-to title), and are hidden on entertainment.",
-        [CommentMode.Hide] = "Comments are hidden on every video.",
-    };
-
     /// <summary>One checkbox per feed toggle, keyed by its setting ("youtube.home").</summary>
     private readonly Dictionary<string, CheckBox> _feedBoxes = new();
 
@@ -100,11 +93,6 @@ public partial class MainWindow : Window
             BlockSitesBox.IsChecked = s.Settings.BlockAdultSites;
             AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
             foreach (var (key, box) in _feedBoxes) box.IsChecked = s.Settings.Feeds?.GetValueOrDefault(key) == true;
-            CommentsShow.IsChecked = s.Settings.YoutubeComments == CommentMode.Show;
-            CommentsLearning.IsChecked = s.Settings.YoutubeComments == CommentMode.Learning;
-            CommentsHide.IsChecked = s.Settings.YoutubeComments == CommentMode.Hide;
-            CommentsHint.Text = CommentHints[s.Settings.YoutubeComments] +
-                " Commenter avatars and profile links are always off, and porn-spam bot comments are hidden.";
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -184,9 +172,6 @@ public partial class MainWindow : Window
             BlockAdultSites = BlockSitesBox.IsChecked == true,
             AllowLiveStreams = AllowLiveBox.IsChecked == true,
             Feeds = _feedBoxes.ToDictionary(f => f.Key, f => f.Value.IsChecked == true),
-            YoutubeComments = CommentsHide.IsChecked == true ? CommentMode.Hide
-                : CommentsLearning.IsChecked == true ? CommentMode.Learning
-                : CommentMode.Show,
             Enforce = EnforceBox.IsChecked == true,
             BlockIncognito = BlockIncognitoBox.IsChecked == true,
             BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,

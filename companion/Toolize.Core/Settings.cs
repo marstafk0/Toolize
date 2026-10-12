@@ -7,9 +7,6 @@ public enum Preset { Strict, Balanced, Relaxed }
 
 public enum RevealMode { Safe, Fast }
 
-/// <summary>Where YouTube comments show. Ordered weakest to strongest.</summary>
-public enum CommentMode { Show, Learning, Hide }
-
 /// <summary>
 /// The settings of record. The extension keeps a cache of these in chrome.storage, but
 /// this copy is the authority — the extension asks, the service decides.
@@ -33,11 +30,6 @@ public sealed record Settings
     /// sites/*.json (see <see cref="FeedCatalog"/>). Absent means off.
     /// </summary>
     public Dictionary<string, bool> Feeds { get; init; } = new();
-    /// <summary>
-    /// Show YouTube comments everywhere, only on how-to/learning videos, or nowhere.
-    /// Commenter avatars and profile links are off and spam bots hidden in every mode.
-    /// </summary>
-    public CommentMode YoutubeComments { get; init; } = CommentMode.Show;
 
     // ---- enforcement (phase 5). Off by default: enforcement changes the browser for
     // every profile on the machine, so it is something the user turns on deliberately.
@@ -75,7 +67,6 @@ public static class SettingsPolicy
         || (before.BlockAdultSites && !after.BlockAdultSites)
         || (!before.AllowLiveStreams && after.AllowLiveStreams)
         || FeedsTurnedOff(before, after).Any()
-        || after.YoutubeComments < before.YoutubeComments
         || (before.Enforce && !after.Enforce)
         || (before.BlockIncognito && !after.BlockIncognito)
         || (before.BlockOtherExtensions && !after.BlockOtherExtensions)
@@ -104,7 +95,6 @@ public static class SettingsPolicy
         if (before.BlockAdultSites && !after.BlockAdultSites) list.Add("turning off adult-site blocking");
         if (!before.AllowLiveStreams && after.AllowLiveStreams) list.Add("allowing live streams unfiltered");
         foreach (var key in FeedsTurnedOff(before, after)) list.Add($"showing {FeedCatalog.Describe(key)} again");
-        if (after.YoutubeComments < before.YoutubeComments) list.Add($"showing more YouTube comments ({after.YoutubeComments})");
         if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
         if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");
         if (before.BlockOtherExtensions && !after.BlockOtherExtensions) list.Add("re-allowing other extensions");

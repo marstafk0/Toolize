@@ -45,6 +45,17 @@
       ]
     },
     {
+      "id": "comments",
+      "label": "Comments",
+      "hint": "Comments under videos and on Shorts. Commenter avatars and profile links are off either way.",
+      "hide": [
+        "ytd-comments > *",
+        "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]",
+        "ytd-shorts #comments-button"
+      ],
+      "notice": { "at": "ytd-comments", "text": "Comments hidden by Toolize." }
+    },
+    {
       "id": "endScreen",
       "label": "End screens",
       "hint": "Video cards over the last seconds of a video, and the wall of suggestions after it.",

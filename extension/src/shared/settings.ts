@@ -1,4 +1,3 @@
-import type { CommentMode } from './feeds';
 import type { Preset } from './policy';
 
 /**
@@ -17,8 +16,6 @@ export interface Settings {
   allowLiveStreams: boolean;
   /** Feed toggles that are on, keyed "<site>.<toggle>" (see sites/*.json). */
   feeds: Record<string, boolean>;
-  /** Where YouTube comments show. Bot protection applies whatever this is. */
-  youtubeComments: CommentMode;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -28,7 +25,6 @@ export const DEFAULT_SETTINGS: Settings = {
   blockAdultSites: true,
   allowLiveStreams: false,
   feeds: {},
-  youtubeComments: 'show',
 };
 
 /** Sites whose live streams `allowLiveStreams` exempts, matched with their subdomains. */

@@ -7,7 +7,7 @@ import type {
   SetSettingsResult,
   TabStats,
 } from '../shared/messages';
-import { CATALOG, feedKey, type CommentMode } from '../shared/feeds';
+import { CATALOG, feedKey } from '../shared/feeds';
 import { PRESETS, type Preset } from '../shared/policy';
 import { loadSettings, type RevealMode, type Settings } from '../shared/settings';
 
@@ -25,12 +25,6 @@ const MODE_HINTS: Record<RevealMode, string> = {
   safe: 'Images stay blurred until checked. No flashes.',
   fast: 'Images show immediately; flagged ones blur after checking. Can flash.',
 };
-const COMMENT_HINTS: Record<CommentMode, string> = {
-  show: 'Comments show everywhere.',
-  learning: 'Comments show on how-to, DIY and learning videos only.',
-  hide: 'Comments are hidden on every video.',
-};
-const FOOTNOTE = ' Commenter avatars and profile links are always off, and spam bots are hidden.';
 
 /** One switch per feed toggle in the catalog. Turning one off again needs the key. */
 function buildFeeds(): void {
@@ -67,13 +61,12 @@ function buildFeeds(): void {
 function render(s: Settings): void {
   $<HTMLInputElement>('enabled').checked = s.enabled;
   $<HTMLInputElement>('blockAdultSites').checked = s.blockAdultSites;
-  for (const [group, value] of [['preset', s.preset], ['mode', s.mode], ['youtubeComments', s.youtubeComments]] as const) {
+  for (const [group, value] of [['preset', s.preset], ['mode', s.mode]] as const) {
     $(group).querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === value)));
   }
   const t = PRESETS[s.preset];
   $('preset-hint').textContent = `${PRESET_HINTS[s.preset]} (porn>${t.porn}, hentai>${t.hentai}, sexy>${t.sexy})`;
   $('mode-hint').textContent = MODE_HINTS[s.mode];
-  $('comments-hint').textContent = COMMENT_HINTS[s.youtubeComments] + FOOTNOTE;
   document.querySelectorAll<HTMLInputElement>('input[data-feed]').forEach((i) => (i.checked = !!s.feeds?.[i.dataset.feed!]));
   document.body.style.opacity = s.enabled ? '1' : '0.75';
 }
@@ -95,7 +88,7 @@ async function change(patch: Record<string, unknown>): Promise<void> {
   }
 }
 
-function bindSeg(id: 'preset' | 'mode' | 'youtubeComments'): void {
+function bindSeg(id: 'preset' | 'mode'): void {
   $(id).addEventListener('click', async (e) => {
     const value = (e.target as HTMLElement).closest('button')?.dataset.value;
     if (value) await change({ [id]: value });
@@ -137,7 +130,6 @@ async function refreshStats(): Promise<void> {
   }
   bindSeg('preset');
   bindSeg('mode');
-  bindSeg('youtubeComments');
   await refreshStats();
   setInterval(refreshStats, 1000);
 })();

@@ -230,14 +230,12 @@ public sealed class FeedSettingsTests
     private static readonly Settings Hiding = Settings.Default with
     {
         Feeds = new() { ["youtube.home"] = true },
-        YoutubeComments = CommentMode.Learning,
     };
 
     [Fact]
     public void Hiding_more_never_needs_the_key()
     {
         Assert.False(SettingsPolicy.IsWeakening(Settings.Default, Hiding));
-        Assert.False(SettingsPolicy.IsWeakening(Hiding, Hiding with { YoutubeComments = CommentMode.Hide }));
         Assert.False(SettingsPolicy.IsWeakening(Hiding, Hiding with { Feeds = new() { ["youtube.home"] = true, ["facebook.feed"] = true } }));
     }
 
@@ -249,19 +247,14 @@ public sealed class FeedSettingsTests
         Assert.Contains("showing the YouTube home feed again", SettingsPolicy.Weakenings(Hiding, Hiding with { Feeds = new() }));
     }
 
-    [Theory]
-    [InlineData(CommentMode.Hide, CommentMode.Learning, true)]
-    [InlineData(CommentMode.Learning, CommentMode.Show, true)]
-    [InlineData(CommentMode.Show, CommentMode.Hide, false)]
-    public void Showing_more_comments_needs_the_key(CommentMode from, CommentMode to, bool weakening) =>
-        Assert.Equal(weakening, SettingsPolicy.IsWeakening(Hiding with { YoutubeComments = from }, Hiding with { YoutubeComments = to }));
-
     [Fact]
     public void Settings_saved_before_feeds_existed_still_load()
     {
         var old = JsonSerializer.Deserialize<Settings>("""{"enabled":true,"preset":"strict"}""", Protocol.Json)!;
         Assert.Empty(old.Feeds);
-        Assert.Equal(CommentMode.Show, old.YoutubeComments);
+        // 0.7.0 saved a comment mode that no longer exists; it must not break loading.
+        var v070 = JsonSerializer.Deserialize<Settings>("""{"enabled":true,"youtubeComments":"learning"}""", Protocol.Json)!;
+        Assert.True(v070.Enabled);
     }
 
     [Fact]
@@ -271,6 +264,7 @@ public sealed class FeedSettingsTests
         Assert.Equal("youtube", FeedCatalog.Sites[0].Id);
         Assert.Contains("youtube.home", keys);
         Assert.Contains("youtube.shorts", keys);
+        Assert.Contains("youtube.comments", keys);
         Assert.Contains("facebook.feed", keys);
     }
 
@@ -279,6 +273,5 @@ public sealed class FeedSettingsTests
     {
         var json = JsonSerializer.Serialize(Hiding, Protocol.Json);
         Assert.Contains("\"feeds\":{\"youtube.home\":true}", json);
-        Assert.Contains("\"youtubeComments\":\"learning\"", json);
     }
 }

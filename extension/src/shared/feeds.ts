@@ -43,53 +43,13 @@ export function siteForHost(hostname: string): FeedSite | undefined {
   );
 }
 
-// ---------------------------------------------------------------- YouTube comments
-
-/**
- * show:     comments everywhere.
- * learning: only on how-to / DIY / educational videos; hidden on entertainment.
- * hide:     comments nowhere.
- */
-export type CommentMode = 'show' | 'learning' | 'hide';
-
-export interface YouTubeVideoMeta {
-  id: string;
-  title: string;
-  /** The uploader-chosen category, e.g. "Howto & Style". Missing when YouTube omits it. */
-  category?: string;
-}
-
-/** YouTube categories that are about learning to do something. */
-const LEARNING_CATEGORIES = new Set(['Howto & Style', 'Education', 'Science & Technology']);
-
-/**
- * Titles that say "this teaches you something", whatever category the uploader picked.
- * That is what catches the grey area: a big entertainment channel's one-off how-to is
- * filed under Entertainment but titled "How to …".
- */
-const HOW_TO_TITLE = new RegExp(
-  '\\b(' +
-    [
-      'how[ -]?to', 'tutorial', 'diy', 'do it yourself', 'step[ -]by[ -]step', 'guide', 'walk-?through',
-      'explained', 'for beginners', "beginner'?s", 'tips', 'course', 'lesson', 'lecture',
-      'fix(ing)?', 'repair(ing|s)?', 'install(ing|ation)?', 'set ?up', 'setting up',
-      'troubleshoot(ing)?', 'maintenance', 'replac(e|ing)', 'restor(e|ing|ation)', 'recipe',
-    ].join('|') +
-    ')\\b',
-  'i',
-);
-
-export function isLearningVideo(meta: YouTubeVideoMeta): boolean {
-  return (meta.category !== undefined && LEARNING_CATEGORIES.has(meta.category)) || HOW_TO_TITLE.test(meta.title);
-}
-
 // ---------------------------------------------------------------- comment bots
 
 /**
  * Spam bots in big channels' comments: a sexual avatar and a handle or text that says
  * "look at my profile", which leads to a porn link. They are deleted and replaced too
  * fast for any blocklist. Avatars are hidden and profile links made unclickable for
- * every comment; this catches the comments themselves.
+ * every comment (content/youtube.ts); this catches the comments themselves.
  */
 
 // Letters from other scripts that look Latin, used to dodge word filters.

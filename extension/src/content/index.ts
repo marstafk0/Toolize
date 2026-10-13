@@ -16,6 +16,8 @@ const INSTANCE = '__toolizeEngine';
 const g = globalThis as unknown as Record<string, BlurEngine | undefined>;
 const PAGE_PARTS = '__toolizePageParts';
 const parts = globalThis as unknown as Record<string, { stop(): void }[] | undefined>;
+/** Dispatched on the document by each new copy of this script; older copies stop. */
+const TAKEOVER = 'toolize:takeover';
 
 // Injected twice into the same frame (manifest + onInstalled re-injection)? Keep the
 // live one. An orphaned instance from before an extension reload is replaced.
@@ -62,5 +64,31 @@ if (!g[INSTANCE]?.isAlive()) {
     else hideOverlay();
   };
   void checkEnforcement();
-  setInterval(() => void checkEnforcement(), 60_000);
+  const enforcementTimer = setInterval(() => void checkEnforcement(), 60_000);
+
+  // After an extension update the previous copy of this script keeps running in every
+  // open tab, in an isolated world this one can't see, and Chrome never stops it. Both
+  // copies then guard the same data-tz attributes, each putting back its own value when
+  // the other changes it: an endless loop that froze every revived tab until the
+  // browser restarted. So: a new copy tells any old one to stand down (DOM events cross
+  // worlds), and a copy whose extension has gone stands down by itself.
+  let stopped = false;
+  const standDown = (): void => {
+    if (stopped) return;
+    stopped = true;
+    engine.stop();
+    for (const p of parts[PAGE_PARTS] ?? []) p.stop();
+    clearInterval(enforcementTimer);
+    clearInterval(orphanTimer);
+    document.removeEventListener(TAKEOVER, onTakeover);
+  };
+  const me = Math.random().toString(36).slice(2);
+  const onTakeover = (e: Event): void => {
+    if ((e as CustomEvent<string>).detail !== me) standDown();
+  };
+  document.dispatchEvent(new CustomEvent(TAKEOVER, { detail: me }));
+  document.addEventListener(TAKEOVER, onTakeover);
+  const orphanTimer = setInterval(() => {
+    if (!chrome.runtime?.id) standDown(); // the blur sheet stays, so the page stays safe
+  }, 2000);
 }

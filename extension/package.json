@@ -11,7 +11,8 @@
     "serve-test": "node scripts/serve-test.mjs",
     "test:e2e": "node build.mjs --dev && node test/e2e.mjs",
     "corpus": "node build.mjs --dev && node test/corpus-run.mjs",
-    "bench": "node build.mjs --dev && node test/bench.mjs"
+    "bench": "node build.mjs --dev && node test/bench.mjs",
+    "test:update": "node build.mjs --dev && node test/update-repro.mjs"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",

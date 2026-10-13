@@ -64,7 +64,7 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
 {
   const tmp = join(out, '.sites.mjs');
   await esbuild.build({ entryPoints: [join(root, 'src/shared/sites.ts')], outfile: tmp, bundle: true, format: 'esm', logLevel: 'silent' });
-  const { ADULT_DOMAINS, NEVER_BLOCK, adultHostRegex } = await import(pathToFileURL(tmp).href);
+  const { ADULT_DOMAINS, NEVER_BLOCK, adultHostRegexes } = await import(pathToFileURL(tmp).href);
   rmSync(tmp);
 
   // The big list. Release builds refresh it first; otherwise use the copy on disk, and
@@ -93,8 +93,10 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
       id: 1, priority: 2, action: blocked,
       condition: { requestDomains: domains, resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest'] },
     },
-    // Long tail: hostname keyword match (see ADULT_LABEL_WORDS).
-    { id: 3, priority: 1, action: blocked, condition: { regexFilter: adultHostRegex(), resourceTypes: ['main_frame'] } },
+    // Long tail: hostname keyword match (STRONG_WORDS / WEAK_WORDS), several small rules.
+    ...adultHostRegexes().map((regexFilter, i) => ({
+      id: 3 + i, priority: 1, action: blocked, condition: { regexFilter, resourceTypes: ['main_frame'] },
+    })),
   ];
   if (dev) rules.push({ id: 99, priority: 3, action: blocked, condition: { urlFilter: '__tz_test_adult', resourceTypes: ['main_frame'] } });
   mkdirSync(join(out, 'rules'), { recursive: true });

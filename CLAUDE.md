@@ -50,7 +50,8 @@ about what each tier actually guarantees.
   explicit frame (porn/hentai > threshold + 0.2), to blur it: single odd frames were
   blurring ordinary videos mid-watch. **Only that confirmed rule pauses** — a paused
   video yields no new frames, so pausing on a doubtful frame froze Shorts and feed
-  previews blurred for good. A video clean from its first frame shows at once; after
+  previews blurred for good. **YouTube is never paused** (user's call): flagged video
+  there is blurred only. A video clean from its first frame shows at once; after
   anything doubtful it needs 3 consecutive clean frames. Back off to
   one sample every few seconds while a verdict is stable; drop to one video at a time
   when the classifier is saturated, so live frames never starve images and backgrounds.
@@ -69,7 +70,10 @@ about what each tier actually guarantees.
     allowed), refusing a list < 80% of the shipped size or one removing > 5%.
     `NEVER_BLOCK` (sites.ts) can never be blocked by a list, exact match only.
   - **Hostname heuristic:** strong words (porn, xxx, hentai) match anywhere, weak words
-    (sex, anal, nude) only as a whole label, so `sussex.ac.uk` is unaffected.
+    (sex, anal, nude) only as a whole label, so `sussex.ac.uk` is unaffected. Several
+    small regex rules (`adultHostRegexes`): Chrome silently drops a regex rule over 2 KB
+    compiled, and the original single rule was dropped until 0.8.3. e2e asserts Chrome
+    reports no ruleset warnings.
   - **Self-labelled pages:** the RTA label or `<meta name="rating" content="adult">`
     blocks the page and learns the site.
   - **Learned sites:** 3 distinct *explicit* (porn/hentai, not "sexy") images on one
@@ -338,6 +342,16 @@ Toolize/                      # repo root (the product is "Toolize")
 - **The GPU is shared with the whole browser.** One long inference call stalls drawing
   in every window (Brave and Edge froze on image-heavy sites with batches of 16), so
   batches cap at 8 and jobs in flight at 8. Measure with `npm run bench` before raising.
+- **After an extension update the old content script keeps running** in every open tab,
+  in a world the new one can't see, and Chrome never stops it. Two copies guarding the
+  same `data-tz` (Stamper.restore puts back its own value) loop forever and freeze the
+  tab until a browser restart. So: each new copy dispatches `toolize:takeover` on the
+  document (DOM events cross worlds) and older copies stand down; a copy whose
+  `chrome.runtime.id` is gone stands down by itself; and restore() yields after a few
+  quick restores per element. `npm run test:update` reproduces an update with busy tabs
+  (`OLD_DIST=<path>` to start from an older build); it needs developer mode on and
+  Playwright's default `--disable-extensions` removed, or the reload disables the
+  extension.
 - **After an extension update, don't re-check every tab at once.** `onInstalled` also
   fires for browser updates (reason `chrome_update`) — ignore those. On install/update
   every tab gets the blur sheet (cheap, fail safe) but the engine only goes into active

@@ -385,7 +385,9 @@ export class VideoWatcher {
     if (t.exempt) return; // a sample that was already in flight when the exemption began
     t.verdict = verdict;
     this.stamper.set(video, verdict);
-    if (verdict === 'blocked' && pause && !t.live) video.pause();
+    // YouTube is never paused: its players don't recover well from being paused under
+    // them, and a wrong pause there (a cooking video) cost more than the blur alone.
+    if (verdict === 'blocked' && pause && !t.live && !isYouTube(location.hostname)) video.pause();
   }
 
   private pendingState(): State {

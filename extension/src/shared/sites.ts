@@ -103,9 +103,17 @@ export function isAdultHost(hostname: string): boolean {
 }
 
 /** Regex source for the declarativeNetRequest keyword rule (matches the tiers above). */
-export function adultHostRegex(): string {
-  const host = '[^/]*';
-  const strong = `^https?://${host}(${STRONG_WORDS.join('|')})${host}(/|$)`;
-  const weak = `^https?://([^/]*[.\\-_])?(${WEAK_WORDS.join('|')})([.\\-_][^/]*)?\\.[a-z]{2,}(/|$)`;
-  return `(${strong})|(${weak})`;
+/**
+ * The same heuristic as declarativeNetRequest regexes. Chrome drops a regex rule whose
+ * compiled form is over 2 KB — silently, as a manifest warning — and one regex for all
+ * the words was (the layer never ran). So: a few strong words per rule, kept lean.
+ * `[^/?#]*` stays inside the host, so a word in the path or query never matches.
+ */
+export function adultHostRegexes(): string[] {
+  const host = '^https?://[^/?#]*';
+  const rules: string[] = [];
+  for (let i = 0; i < STRONG_WORDS.length; i += 4) rules.push(`${host}(${STRONG_WORDS.slice(i, i + 4).join('|')})`);
+  // A weak word only as a whole label: after the scheme or a separator, then one.
+  rules.push(`^https?://([^/?#]*[.\\-_])?(${WEAK_WORDS.join('|')})[.\\-_]`);
+  return rules;
 }

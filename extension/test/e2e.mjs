@@ -375,6 +375,30 @@ try {
     const wrong = [...adult.filter((h) => !isAdultHost(h)), ...fine.filter((h) => isAdultHost(h))];
     check('hostname heuristic: catches adult hosts, spares lookalikes', wrong.length === 0, wrong.join(', '));
   }
+  // ...and the same heuristic as Chrome actually runs it (its regex rules), on hosts no
+  // list contains. Chrome silently drops a regex rule over its size limit; this caught
+  // that the whole layer had never been running.
+  {
+    const hp = await context.newPage();
+    const lands = async (host) => {
+      await hp.goto(`http://${host}:8787/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      return hp.url().includes('/blocked/blocked.html') && !hp.url().includes('reason=words');
+    };
+    const blockedHosts = ['bestxxxvideos.test', 'free-milf-clips.test', 'nude-gallery.test', 'www.sex.test'];
+    const fineHosts = ['sussex.test', 'analytics-dashboard.test', 'essexnews.test'];
+    const missed = [];
+    for (const h of blockedHosts) if (!(await lands(h))) missed.push(`${h} not blocked`);
+    for (const h of fineHosts) if (await lands(h)) missed.push(`${h} blocked`);
+    check('hostname rules block made-up adult hosts in Chrome itself, and spare lookalikes', missed.length === 0, missed.join(', '));
+
+    await hp.goto('chrome://extensions/');
+    const warnings = await hp.evaluate(async (id) => {
+      const info = await chrome.developerPrivate.getExtensionInfo(id);
+      return [...(info.manifestErrors ?? []), ...(info.installWarnings ?? []).map((w) => ({ message: w }))].map((e) => e.message);
+    }, extId).catch((e) => [`could not read: ${e.message}`]);
+    check('Chrome loaded every rule (no manifest or ruleset warnings)', warnings.length === 0, warnings.join(' | '));
+    await hp.close();
+  }
 
   // ---- feeds: per-site toggles from sites/*.json, and the YouTube comment-bot shield
   await setSettings({ feeds: { 'youtube.home': true, 'youtube.shorts': true, 'youtube.related': true } });
@@ -449,6 +473,8 @@ try {
   const tz = (id) => yt.evaluate((id) => document.getElementById(id)?.getAttribute('data-tz'), id);
   await waitFor(async () => (await tz('v-other')) === 'blocked' && (await tz('img-other')) === 'blocked' && (await tz('v-trusted')) === 'skip', { timeout: 15_000 });
   const trust = { paused: await yt.evaluate(() => document.getElementById('v-trusted').paused), video: await tz('v-trusted'), img: await tz('img-trusted'), otherVideo: await tz('v-other'), otherImg: await tz('img-other') };
+  const otherPaused = await yt.evaluate(() => document.getElementById('v-other').paused);
+  check('on YouTube a flagged video is blurred but never paused', trust.otherVideo === 'blocked' && !otherPaused, `paused=${otherPaused}`);
   check('a trusted channel\'s videos and thumbnails skip the check; others are still blurred',
     trust.video === 'skip' && !trust.paused && trust.img === 'skip' && trust.otherVideo === 'blocked' && trust.otherImg === 'blocked', JSON.stringify(trust));
   await setSettings({ trustedChannels: [] });

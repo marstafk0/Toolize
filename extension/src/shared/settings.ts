@@ -16,6 +16,10 @@ export interface Settings {
   allowLiveStreams: boolean;
   /** Feed toggles that are on, keyed "<site>.<toggle>" (see sites/*.json). */
   feeds: Record<string, boolean>;
+  /** Block pages and hide YouTube videos whose address or title has a blocked word. */
+  wordFilter: boolean;
+  /** The user's own words, on top of DEFAULT_WORDS (shared/words.ts). */
+  blockedWords: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
   blockAdultSites: true,
   allowLiveStreams: false,
   feeds: {},
+  wordFilter: true,
+  blockedWords: [],
 };
 
 /** Sites whose live streams `allowLiveStreams` exempts, matched with their subdomains. */

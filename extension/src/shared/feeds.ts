@@ -63,7 +63,7 @@ const LEET: Record<string, string> = { '0': 'o', '1': 'i', '3': 'e', '4': 'a', '
 export function normalize(s: string): string {
   return s
     .normalize('NFKD')
-    .replace(/[\p{M}​-‏⁠﻿]/gu, '')
+    .replace(/[\p{M}\u200b-\u200f\u2060\ufeff]/gu, '')
     .toLowerCase()
     .replace(/./gu, (c) => CONFUSABLES[c] ?? c);
 }

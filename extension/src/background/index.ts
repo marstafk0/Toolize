@@ -203,7 +203,11 @@ if (__DEV__) (self as unknown as Record<string, unknown>).__tz = { updateList, l
 
 // ---------------------------------------------------------------- install / startup
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  // A browser update fires this too, but our scripts in open tabs are still alive then:
+  // nothing to redo. (Redoing it re-checked every image in every tab at once.)
+  if (reason !== chrome.runtime.OnInstalledReason.INSTALL && reason !== chrome.runtime.OnInstalledReason.UPDATE) return;
+
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings) await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
   await syncRulesets();
@@ -213,21 +217,39 @@ chrome.runtime.onInstalled.addListener(async () => {
   await syncDynamicRules();
   void updateList().catch((e) => console.warn('[toolize]', e?.message ?? e));
 
-  // Pages open before install/update have no (or an orphaned) content script.
-  // Inject into them so protection covers existing tabs immediately.
-  const manifest = chrome.runtime.getManifest();
-  const [mainWorld, isolated] = manifest.content_scripts ?? [];
-  for (const tab of await chrome.tabs.query({})) {
-    if (tab.id == null || !/^(https?|file):/.test(tab.url ?? '')) continue;
-    const target = { tabId: tab.id, allFrames: true };
-    try {
-      await chrome.scripting.insertCSS({ target, files: isolated.css ?? [] });
-      await chrome.scripting.executeScript({ target, files: mainWorld.js ?? [], world: 'MAIN' });
-      await chrome.scripting.executeScript({ target, files: isolated.js ?? [] });
-    } catch {
-      // Restricted page (web store, etc.) — nothing to do.
-    }
+  // Pages open before install/update have no (or an orphaned) content script. Every
+  // one gets the blur sheet now, which is cheap and keeps them safe. The engine itself
+  // goes into the tabs on screen; the rest get it when they're next looked at, so an
+  // update doesn't classify every image in every tab at the same moment.
+  const tabs = (await chrome.tabs.query({})).filter((t) => t.id != null && /^(https?|file):/.test(t.url ?? ''));
+  const css = chrome.runtime.getManifest().content_scripts?.[1]?.css ?? [];
+  for (const tab of tabs) {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id!, allFrames: true }, files: css }).catch(() => {});
   }
+  const later = tabs.filter((t) => !t.active).map((t) => t.id!);
+  await chrome.storage.session.set({ [REVIVE_KEY]: later });
+  for (const tab of tabs) if (tab.active) await reviveTab(tab.id!);
+});
+
+/** Tabs opened before an update whose content scripts haven't been re-injected yet. */
+const REVIVE_KEY = 'reviveTabs';
+
+async function reviveTab(tabId: number): Promise<void> {
+  const [mainWorld, isolated] = chrome.runtime.getManifest().content_scripts ?? [];
+  const target = { tabId, allFrames: true };
+  try {
+    await chrome.scripting.executeScript({ target, files: mainWorld.js ?? [], world: 'MAIN' });
+    await chrome.scripting.executeScript({ target, files: isolated.js ?? [] });
+  } catch {
+    // Restricted page (web store, etc.), or the tab has gone.
+  }
+}
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  const pending = ((await chrome.storage.session.get(REVIVE_KEY))[REVIVE_KEY] as number[] | undefined) ?? [];
+  if (!pending.includes(tabId)) return;
+  await chrome.storage.session.set({ [REVIVE_KEY]: pending.filter((id) => id !== tabId) });
+  await reviveTab(tabId);
 });
 
 // ---------------------------------------------------------------- desktop app link

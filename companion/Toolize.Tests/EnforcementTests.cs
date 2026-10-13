@@ -258,6 +258,24 @@ public sealed class FeedSettingsTests
     }
 
     [Fact]
+    public void The_word_filter_is_on_by_default_and_turning_it_off_needs_the_key()
+    {
+        Assert.True(Settings.Default.WordFilter);
+        Assert.True(SettingsPolicy.IsWeakening(Settings.Default, Settings.Default with { WordFilter = false }));
+        Assert.False(SettingsPolicy.IsWeakening(Settings.Default with { WordFilter = false }, Settings.Default));
+    }
+
+    [Fact]
+    public void Adding_words_is_free_and_removing_one_needs_the_key()
+    {
+        var some = Settings.Default with { BlockedWords = ["onlyfans", "Swimwear"] };
+        Assert.False(SettingsPolicy.IsWeakening(Settings.Default, some));
+        Assert.False(SettingsPolicy.IsWeakening(some, some with { BlockedWords = ["SWIMWEAR", "onlyfans", "thong"] }));
+        Assert.True(SettingsPolicy.IsWeakening(some, some with { BlockedWords = ["onlyfans"] }));
+        Assert.Contains("removing blocked words", SettingsPolicy.Weakenings(some, some with { BlockedWords = [] }));
+    }
+
+    [Fact]
     public void The_catalog_is_the_extension_one()
     {
         var keys = FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key).ToList();

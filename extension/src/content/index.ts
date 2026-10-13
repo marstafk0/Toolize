@@ -4,6 +4,7 @@ import { BlurEngine } from './engine';
 import { hideOverlay, isStale, showOverlay } from './failclosed';
 import { FeedHider } from './feeds';
 import { watchForAdultLabel } from './labels';
+import { WordFilter } from './wordfilter';
 import { YouTubeGuard } from './youtube';
 
 /**
@@ -28,14 +29,23 @@ if (!g[INSTANCE]?.isAlive()) {
   const site = window === window.top ? siteForHost(location.hostname) : undefined;
   const feeds = site ? new FeedHider(site) : null;
   const youtube = site?.id === 'youtube' ? new YouTubeGuard() : null;
+  const words =
+    window === window.top
+      ? new WordFilter(() => {
+          for (const v of document.querySelectorAll('video')) v.pause();
+          location.replace(chrome.runtime.getURL('blocked/blocked.html?reason=words'));
+        })
+      : null;
   feeds?.start();
   youtube?.start();
-  parts[PAGE_PARTS] = [feeds, youtube].filter((p) => p !== null);
+  words?.start();
+  parts[PAGE_PARTS] = [feeds, youtube, words].filter((p) => p !== null);
 
   const apply = (s: Settings): void => {
     engine.setSettings(s);
     feeds?.setSettings(s);
     youtube?.setSettings(s);
+    words?.setSettings(s);
   };
   const ready = loadSettings().then(apply);
   onSettingsChanged(apply);

@@ -147,7 +147,7 @@ export class NsfwjsClassifier implements ImageClassifier {
 }
 
 /** Fixed batch shapes (see runBucket). Largest = max batch per inference call. */
-const BATCH_BUCKETS = [1, 2, 4, 8, 16];
+const BATCH_BUCKETS = [1, 2, 4, 8]; // keep the largest in step with MAX_BATCH (pipeline.ts)
 
 function isSoftwareGL(): boolean {
   try {

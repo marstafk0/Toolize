@@ -31,6 +31,15 @@ public sealed record Settings
     /// </summary>
     public Dictionary<string, bool> Feeds { get; init; } = new();
 
+    /// <summary>
+    /// Block pages whose address or title has a blocked word (searches included), and
+    /// hide YouTube videos whose title or channel does. The built-in list lives in the
+    /// extension (shared/words.ts).
+    /// </summary>
+    public bool WordFilter { get; init; } = true;
+    /// <summary>The user's own words on top of the built-in list. Removing one is weakening.</summary>
+    public List<string> BlockedWords { get; init; } = new();
+
     // ---- enforcement (phase 5). Off by default: enforcement changes the browser for
     // every profile on the machine, so it is something the user turns on deliberately.
 
@@ -67,6 +76,8 @@ public static class SettingsPolicy
         || (before.BlockAdultSites && !after.BlockAdultSites)
         || (!before.AllowLiveStreams && after.AllowLiveStreams)
         || FeedsTurnedOff(before, after).Any()
+        || (before.WordFilter && !after.WordFilter)
+        || WordsRemoved(before, after).Any()
         || (before.Enforce && !after.Enforce)
         || (before.BlockIncognito && !after.BlockIncognito)
         || (before.BlockOtherExtensions && !after.BlockOtherExtensions)
@@ -76,6 +87,13 @@ public static class SettingsPolicy
     /// <summary>Feed toggles on before and not on after (a missing key is off).</summary>
     private static IEnumerable<string> FeedsTurnedOff(Settings before, Settings after) =>
         (before.Feeds ?? []).Where(f => f.Value && !(after.Feeds ?? []).GetValueOrDefault(f.Key)).Select(f => f.Key);
+
+    /// <summary>The user's blocked words that are gone after the change (case doesn't matter).</summary>
+    private static IEnumerable<string> WordsRemoved(Settings before, Settings after)
+    {
+        var kept = new HashSet<string>((after.BlockedWords ?? []).Select(w => w.Trim()), StringComparer.OrdinalIgnoreCase);
+        return (before.BlockedWords ?? []).Select(w => w.Trim()).Where(w => w.Length > 0 && !kept.Contains(w));
+    }
 
     private static int Strength(Preset p) => p switch
     {
@@ -95,6 +113,8 @@ public static class SettingsPolicy
         if (before.BlockAdultSites && !after.BlockAdultSites) list.Add("turning off adult-site blocking");
         if (!before.AllowLiveStreams && after.AllowLiveStreams) list.Add("allowing live streams unfiltered");
         foreach (var key in FeedsTurnedOff(before, after)) list.Add($"showing {FeedCatalog.Describe(key)} again");
+        if (before.WordFilter && !after.WordFilter) list.Add("turning off the word filter");
+        if (WordsRemoved(before, after).Any()) list.Add("removing blocked words");
         if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
         if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");
         if (before.BlockOtherExtensions && !after.BlockOtherExtensions) list.Add("re-allowing other extensions");

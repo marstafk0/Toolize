@@ -30,6 +30,23 @@ try
             await SetAsync(rest.Skip(1).ToArray());
             break;
 
+        case "words":
+        {
+            // toolize words | words add <word> | words remove <word>
+            var current = (await Ask(Verbs.GetSettings)).DataAs<Settings>()!;
+            var words = new List<string>(current.BlockedWords ?? []);
+            var (action, word) = (rest.Skip(1).FirstOrDefault(), string.Join(' ', rest.Skip(2)).Trim());
+            if (action is null) { Console.WriteLine(words.Count == 0 ? "(no words of your own; the built-in list always applies)" : string.Join(Environment.NewLine, words)); break; }
+            if (word.Length == 0) throw new ArgumentException("usage: toolize words add|remove <word or phrase>");
+            if (action == "add" && !words.Contains(word, StringComparer.OrdinalIgnoreCase)) words.Add(word);
+            else if (action == "remove") words.RemoveAll(w => string.Equals(w, word, StringComparison.OrdinalIgnoreCase));
+            else if (action != "add") throw new ArgumentException($"unknown words action '{action}'");
+            var response = await client.SendAsync(Verbs.SetSettings, new SetSettingsArgs(current with { BlockedWords = words }));
+            if (!response.Ok) { Console.Error.WriteLine(response.Error); return 4; }
+            Console.WriteLine($"{words.Count} word(s) of your own");
+            break;
+        }
+
         case "channel":
         {
             var name = rest.Skip(1).FirstOrDefault();
@@ -140,7 +157,7 @@ try
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, words, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
             return 2;
     }
     return 0;
@@ -190,6 +207,7 @@ async Task SetAsync(string[] pair)
               preset   strict|balanced|relaxed
               mode     safe|fast
               watchdog off|warn|close
+              wordFilter on|off
               feed <site.toggle> on|off     (on = hidden)
             """);
         Console.Error.WriteLine("  feeds: " + string.Join(", ", FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key)));
@@ -204,6 +222,7 @@ async Task SetAsync(string[] pair)
     var (key, value) = (pair[0].ToLowerInvariant(), pair[^1].ToLowerInvariant());
     var next = key switch
     {
+        "wordfilter" => current with { WordFilter = ParseBool(value) },
         "feed" => current with { Feeds = new(current.Feeds ?? []) { [pair[1]] = ParseBool(value) } },
         "enabled" => current with { Enabled = ParseBool(value) },
         "preset" => current with { Preset = Enum.Parse<Preset>(value, true) },

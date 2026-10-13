@@ -1,4 +1,4 @@
-import { decide, PRESETS } from '../shared/policy';
+import { decide, isObviouslyExplicit, PRESETS } from '../shared/policy';
 import { isLiveSite, type Settings } from '../shared/settings';
 import { ClassifyClient, isFetchFailure } from './client';
 import type { Stamper, State } from './state';
@@ -23,8 +23,14 @@ const RETRY_MS = 5000;
  * machine), so sample one video at a time and let images and backgrounds through.
  */
 const SLOW_CLASSIFIER_MS = 400;
-/** Blur if any of the last N frames was flagged. */
+/**
+ * Sliding window of frame results. Before a video is first shown, any doubtful frame
+ * keeps it blurred (safe reveal). Once it is playing in the clear, one odd frame must
+ * not blur it out of nowhere: it takes FLAGGED_TO_BLUR flagged frames in the window,
+ * or a single obviously explicit one.
+ */
 const WINDOW = 3;
+const FLAGGED_TO_BLUR = 2;
 /** Consecutive clean frames needed to reveal — stops borderline clips from strobing. */
 const CLEAN_STREAK = 3;
 /** Videos sampled at once, largest first. */
@@ -33,8 +39,11 @@ const FRAME_MAX_SIDE = 448;
 /** Videos smaller than this are decorative loops/backgrounds too small to read. */
 const MIN_SIDE = 64;
 
+/** One frame: over the threshold, near it (or unread), or clearly fine. */
+type Frame = 'flagged' | 'doubtful' | 'clean';
+
 interface Track {
-  recent: boolean[];
+  recent: Frame[];
   cleanStreak: number;
   drm: boolean;
   /** The offscreen whole-file path already ran (or failed) for this source. */
@@ -235,11 +244,14 @@ export class VideoWatcher {
       const r = await this.client.classifyFrame(frame, tag);
       if (this.tracks.get(video) !== t) return;
       t.failures = 0;
-      // A frame can't be re-scored on tiles after the fact, so treat 'refine'
-      // (borderline) as flagged and let the clean streak reveal it again.
-      const flagged = decide(r, PRESETS[this.settings!.preset]) !== 'clean';
-      if (still !== undefined) this.recordStill(video, t, still, flagged);
-      else this.record(video, t, flagged);
+      // A frame can't be re-scored on tiles after the fact, so 'refine' (borderline)
+      // is doubtful: enough to keep a video hidden, not enough to hide a shown one.
+      const th = PRESETS[this.settings!.preset];
+      const decision = decide(r, th);
+      const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
+      const obvious = isObviouslyExplicit(r.whole, th);
+      if (still !== undefined) this.recordStill(video, t, still, result, obvious);
+      else this.record(video, t, result, obvious);
     } catch (e) {
       if (this.tracks.get(video) === t) {
         if (e instanceof Unreadable) {
@@ -318,20 +330,27 @@ export class VideoWatcher {
   }
 
   /** A paused frame doesn't change, so one classification is its whole verdict. */
-  private recordStill(video: HTMLVideoElement, t: Track, at: number, flagged: boolean): void {
+  private recordStill(video: HTMLVideoElement, t: Track, at: number, frame: Frame, obvious: boolean): void {
     t.stillAt = at;
-    t.recent = [flagged];
-    t.cleanStreak = flagged ? 0 : CLEAN_STREAK;
-    this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
+    t.recent = [frame];
+    const shown = t.verdict === 'clean';
+    const blur = obvious || frame === 'flagged' || (frame === 'doubtful' && !shown);
+    t.cleanStreak = blur ? 0 : CLEAN_STREAK;
+    this.setVerdict(video, t, blur ? 'blocked' : 'clean');
   }
 
-  private record(video: HTMLVideoElement, t: Track, flagged: boolean): void {
-    t.recent.push(flagged);
+  private record(video: HTMLVideoElement, t: Track, frame: Frame, obvious: boolean): void {
+    t.recent.push(frame);
     if (t.recent.length > WINDOW) t.recent.shift();
-    t.cleanStreak = flagged ? 0 : t.cleanStreak + 1;
+    t.cleanStreak = frame === 'clean' ? t.cleanStreak + 1 : 0;
 
-    if (t.recent.includes(true)) {
-      t.every = SAMPLE_MS; // something was flagged: watch it closely again
+    const flagged = t.recent.filter((f) => f === 'flagged').length;
+    const shown = t.verdict === 'clean';
+    const blur = shown
+      ? obvious || flagged >= FLAGGED_TO_BLUR
+      : t.recent.some((f) => f !== 'clean'); // not shown yet: anything doubtful keeps it hidden
+    if (frame !== 'clean') t.every = SAMPLE_MS; // something was off: look again soon
+    if (blur) {
       this.setVerdict(video, t, 'blocked');
     } else if (t.cleanStreak >= CLEAN_STREAK) {
       // Stable and clean: ease off, so a long video doesn't classify forever at 1/s.

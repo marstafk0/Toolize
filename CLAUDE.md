@@ -44,14 +44,18 @@ about what each tier actually guarantees.
 - **Safe-reveal (default):** `<img>` and `<video>` are CSS-blurred before first paint
   and only revealed after classifying clean. "Detect, then blur" is an option, not the
   default. CSS backgrounds are the documented exception — see below.
-- **Video:** sample playing videos near the viewport ~1/s. Blur + pause if any of the
-  last 3 frames is flagged; reveal only after 3 consecutive clean frames. Back off to
+- **Video:** sample playing videos near the viewport ~1/s. Before a video is first
+  shown, any flagged or borderline frame in the last 3 keeps it blurred (safe reveal).
+  Once it plays in the clear, it takes 2 flagged frames of the last 3, or one obviously
+  explicit frame (porn/hentai > threshold + 0.2), to blur + pause it: single odd frames
+  were blurring ordinary videos mid-watch. Reveal only after 3 consecutive clean frames. Back off to
   one sample every few seconds while a verdict is stable; drop to one video at a time
   when the classifier is saturated, so live frames never starve images and backgrounds.
 - **Thresholds:** blur if porn > 0.55 OR hentai > 0.55 OR sexy > 0.75 (balanced).
-  Presets strict / balanced / relaxed. For borderline whole-image scores (within 0.25
-  below a threshold), re-score on overlapping full-resolution tiles — a 224px downscale
-  hides detail. Expect real tuning time here: false positives (beaches, medical, art,
+  Presets strict / balanced / relaxed. For borderline whole-image porn/hentai scores
+  (within 0.25 below a threshold), re-score on overlapping full-resolution tiles — a
+  224px downscale hides detail. Tiles never decide on "sexy": on a crop, any close-up of
+  skin scores it, which blurred ordinary thumbnails and listings. Expect real tuning time here: false positives (beaches, medical, art,
   skin-tone crops) are the #1 quality risk of the whole project.
 - **Site blocking:** `declarativeNetRequest` blocks known adult domains before anything
   loads — cheaper and more reliable than classifying their images. Four layers:
@@ -83,6 +87,14 @@ about what each tier actually guarantees.
   and Facebook (news feed = the whole `div[role=main]` on the home path, since its inner
   markup is obfuscated; stories, reels, video tab — unverified against a logged-in
   account). Still to come: X, Reddit, Instagram, LinkedIn, TikTok.
+- **Word filter** (`wordFilter`, on by default; `blockedWords` = the user's extras on
+  top of `DEFAULT_WORDS` in shared/words.ts): a page whose address or title has a
+  blocked word goes to the blocked page (covers searches); on YouTube, tiles whose
+  title/channel match are hidden and a matching watch page is blocked. Whole-word,
+  case-insensitive, after the same Unicode/lookalike folding as the bot filter; `/re/`
+  entries are patterns. Turning it off or removing a word is weakening. Idea from
+  DuckySteals/word-guard (no license, so reimplemented, own list). Browser-only; a
+  Windows-wide version would need a per-user UI Automation agent (phase 7 territory).
 - **YouTube comments** show by default; hiding them is the `youtube.comments` toggle.
   (A "how-to videos only" mode keyed on category + title was built in 0.7.0 and dropped
   at the user's request in 0.7.1; old settings carrying `youtubeComments` still load.)
@@ -311,6 +323,13 @@ Toolize/                      # repo root (the product is "Toolize")
 - **The offscreen document is a hidden page, so `setTimeout` is throttled to ~1s.** Use
   `MessageChannel` for scheduling, and `dataSync()` rather than the async readback
   (which polls a GPU fence with a timer). This was a 60× latency bug.
+- **The GPU is shared with the whole browser.** One long inference call stalls drawing
+  in every window (Brave and Edge froze on image-heavy sites with batches of 16), so
+  batches cap at 8 and jobs in flight at 8. Measure with `npm run bench` before raising.
+- **After an extension update, don't re-check every tab at once.** `onInstalled` also
+  fires for browser updates (reason `chrome_update`) — ignore those. On install/update
+  every tab gets the blur sheet (cheap, fail safe) but the engine only goes into active
+  tabs; the rest are revived on `tabs.onActivated`.
 - **TF.js compiles WebGL programs per input shape**; an uncached shape costs seconds.
   Pad batches to fixed buckets and warm each bucket at load, in idle time.
 - Threaded WASM needs a cross-origin-isolated document. We don't ship the threaded

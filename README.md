@@ -33,6 +33,10 @@ Anyone with admin rights on a machine can defeat software running on it: they ca
 FIDO2/YubiKey (the uncopyable unlock tier) slots in behind the same interface as the
 flash-drive tier; see *The unlock key* below for what each tier actually guarantees.
 
+## Word filter
+
+On by default. A page whose address or title contains a blocked word is replaced with the blocked page, which covers searches too. On YouTube, videos, Shorts and channels whose title or channel name contains one are hidden, and a matching video's page is blocked. The built-in list covers explicit and revealing terms ("nude", "bikini" but not "Bikini Bottom", "try on haul", …); add your own in the desktop app or with `toolize words add <word>`. Matching is whole-word ("sex" doesn't block "Essex") and sees through fancy Unicode fonts and lookalike letters. Turning it off or removing a word needs the key. It works in every browser Toolize runs in; it doesn't read text in other Windows apps.
+
 ## Feeds
 
 Optional, per site, in the popup (under **Feeds**) or the desktop app. Hiding something never needs the key; showing it again does.

@@ -101,6 +101,18 @@
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="WORD FILTER" />
+                        <CheckBox x:Name="WordFilterBox" Content="Block pages and searches with blocked words, and hide matching YouTube videos" Click="OnSettingChanged" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="A built-in list covers explicit and revealing terms (porn, nude, bikini, try-on haul…). Add your own below, one per line; /pattern/ for a regular expression. Removing a word needs your key." />
+                        <TextBox x:Name="WordsBox" Margin="0,8,0,0" Height="80" AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" FontFamily="Consolas" />
+                        <Button x:Name="SaveWordsButton" Margin="0,8,0,0" HorizontalAlignment="Left" Content="Save words" Click="OnSettingChanged" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="FEEDS" />
                         <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,4"
                                    Text="Hide the endless parts of these sites. Turning one back on needs your key." />

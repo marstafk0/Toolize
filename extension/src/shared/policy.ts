@@ -54,12 +54,20 @@ export function isFlagged(s: Scores, t: Thresholds): boolean {
   return s.porn > t.porn || s.hentai > t.hentai || s.sexy > t.sexy;
 }
 
+/**
+ * Worth a closer look on tiles: explicit detail can hide in a 224px downscale, so only
+ * porn/hentai count. "Sexy" is about the whole picture (swimwear, a pose); on tiles it
+ * fires on any close-up of skin — faces, arms, a product photo — so it's whole-image only.
+ */
 export function isBorderline(s: Scores, t: Thresholds): boolean {
-  return (
-    s.porn > t.porn - REFINE_MARGIN ||
-    s.hentai > t.hentai - REFINE_MARGIN ||
-    s.sexy > t.sexy - REFINE_MARGIN
-  );
+  return s.porn > t.porn - REFINE_MARGIN || s.hentai > t.hentai - REFINE_MARGIN;
+}
+
+/** Explicit by a wide margin: one such video frame is enough to blur. */
+export const OBVIOUS_MARGIN = 0.2;
+
+export function isObviouslyExplicit(s: Scores, t: Thresholds): boolean {
+  return s.porn > t.porn + OBVIOUS_MARGIN || s.hentai > t.hentai + OBVIOUS_MARGIN;
 }
 
 export function isTileable(r: Pick<ClassifyResult, 'width' | 'height'>): boolean {
@@ -75,7 +83,7 @@ export function decide(r: ClassifyResult, t: Thresholds): Decision {
   if (isFlagged(r.whole, t)) return 'blocked';
   if (!isBorderline(r.whole, t) || !isTileable(r)) return 'clean';
   if (!r.tiles) return 'refine';
-  return isFlagged(r.tiles, t) ? 'blocked' : 'clean';
+  return r.tiles.porn > t.porn || r.tiles.hentai > t.hentai ? 'blocked' : 'clean';
 }
 
 export function maxScores(list: Scores[]): Scores {

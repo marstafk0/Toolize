@@ -93,6 +93,9 @@ public partial class MainWindow : Window
             BlockSitesBox.IsChecked = s.Settings.BlockAdultSites;
             AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
             foreach (var (key, box) in _feedBoxes) box.IsChecked = s.Settings.Feeds?.GetValueOrDefault(key) == true;
+            WordFilterBox.IsChecked = s.Settings.WordFilter;
+            // Don't overwrite what the user is typing on every refresh.
+            if (!WordsBox.IsKeyboardFocusWithin) WordsBox.Text = string.Join(Environment.NewLine, s.Settings.BlockedWords ?? []);
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -172,6 +175,9 @@ public partial class MainWindow : Window
             BlockAdultSites = BlockSitesBox.IsChecked == true,
             AllowLiveStreams = AllowLiveBox.IsChecked == true,
             Feeds = _feedBoxes.ToDictionary(f => f.Key, f => f.Value.IsChecked == true),
+            WordFilter = WordFilterBox.IsChecked == true,
+            BlockedWords = WordsBox.Text.Split(['\r', '\n']).Select(w => w.Trim()).Where(w => w.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             Enforce = EnforceBox.IsChecked == true,
             BlockIncognito = BlockIncognitoBox.IsChecked == true,
             BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,

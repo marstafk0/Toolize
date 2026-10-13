@@ -61,6 +61,7 @@ function buildFeeds(): void {
 function render(s: Settings): void {
   $<HTMLInputElement>('enabled').checked = s.enabled;
   $<HTMLInputElement>('blockAdultSites').checked = s.blockAdultSites;
+  $<HTMLInputElement>('wordFilter').checked = s.wordFilter;
   for (const [group, value] of [['preset', s.preset], ['mode', s.mode]] as const) {
     $(group).querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === value)));
   }
@@ -123,7 +124,7 @@ async function refreshStats(): Promise<void> {
 (async () => {
   buildFeeds();
   render(await loadSettings());
-  for (const id of ['enabled', 'blockAdultSites'] as const) {
+  for (const id of ['enabled', 'blockAdultSites', 'wordFilter'] as const) {
     $<HTMLInputElement>(id).addEventListener('change', (e) =>
       change({ [id]: (e.target as HTMLInputElement).checked }),
     );

@@ -102,10 +102,7 @@ export class ImageWatcher {
 
     // Size checks come before any cached verdict: an image classified while it was still
     // loading turns out to be an icon once decoded, and icons are never judged.
-    if (img.complete) {
-      if (img.naturalWidth === 0) return this.stamper.set(img, 'skip'); // broken: nothing to show
-      if (isTiny(img)) return this.stamper.set(img, 'skip');
-    }
+    if (unjudged(img)) return this.stamper.set(img, 'skip');
 
     const known = this.client.cached(t.key);
     if (known) return this.apply(img, t, known);
@@ -136,6 +133,7 @@ export class ImageWatcher {
       if (!this.current(img, t)) return;
       // Started early and the fallback needs the decoded image: the load event retries.
       if (!img.complete) return;
+      if (unjudged(img)) return this.stamper.set(img, 'skip');
       this.stamper.set(img, 'error');
       if (__DEV__) console.warn('[toolize] image classify failed', t.src.slice(0, 120), e);
       // Most failures are transient: the service worker or classifier restarting, a
@@ -151,6 +149,9 @@ export class ImageWatcher {
   }
 
   private apply(img: HTMLImageElement, t: Track, r: ClassifyResult): void {
+    // A verdict started while the image was loading can land after the load event
+    // found it broken or icon-sized. Those are never judged, so the size rule wins.
+    if (unjudged(img)) return this.stamper.set(img, 'skip');
     const thresholds = PRESETS[this.settings!.preset];
     const d = decide(r, thresholds);
     if (d === 'blocked' && isExplicit(r, thresholds)) this.onExplicit(t.key);
@@ -189,6 +190,11 @@ export class ImageWatcher {
   private pendingState(): State {
     return this.settings?.mode === 'fast' ? 'fast' : 'pending';
   }
+}
+
+/** Loaded, and broken (nothing to show) or icon-sized: never classified. */
+function unjudged(img: HTMLImageElement): boolean {
+  return img.complete && (img.naturalWidth === 0 || isTiny(img));
 }
 
 /**

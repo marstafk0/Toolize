@@ -146,6 +146,29 @@ try {
   const blockedVideos = (videos ?? []).filter((i) => i.expect === 'blocked');
   check('flagged videos are paused, except live ones', blockedVideos.length === 4 && blockedVideos.every((i) => i.paused === !i.live),
     JSON.stringify(blockedVideos.map((i) => `${i.live ? 'live' : 'vod'}:${i.paused}`)));
+  // A video playing in the clear isn't blurred by one doubtful frame, only by repeated
+  // or obvious ones.
+  await page.evaluate(() => {
+    const v = document.createElement('video');
+    Object.assign(v, { src: document.querySelector('#videos video').src, muted: true, loop: true, autoplay: true, id: 'tolerance' });
+    document.getElementById('videos').prepend(v);
+    v.play().catch(() => {});
+  });
+  const tolState = () => page.evaluate(() => document.getElementById('tolerance').getAttribute('data-tz'));
+  await waitFor(async () => (await tolState()) === 'clean', { timeout: 15_000 });
+  await page.evaluate(() => (document.getElementById('tolerance').dataset.tzTest = '__tz_test_borderline'));
+  const seen = new Set();
+  for (const end = Date.now() + 2500; Date.now() < end; ) {
+    seen.add(await tolState());
+    await page.waitForTimeout(100);
+  }
+  await page.evaluate(() => delete document.getElementById('tolerance').dataset.tzTest);
+  check('a doubtful frame or two does not blur a video that is already playing', seen.size === 1 && seen.has('clean'), [...seen].join(','));
+  await page.evaluate(() => (document.getElementById('tolerance').dataset.tzTest = '__tz_test_flag'));
+  const obvious = await waitFor(async () => (await tolState()) === 'blocked', { timeout: 6000 });
+  check('an obviously explicit frame still blurs it straight away', !!obvious, await tolState());
+  await page.evaluate(() => document.getElementById('tolerance').remove());
+
   check('picture-in-picture is refused', (await page.evaluate(() => window.__tryPip())) === 'NotAllowedError');
   check('every video carries disablepictureinpicture (what the right-click menu checks)',
     await page.evaluate(() => [...document.querySelectorAll('#videos video')].every((v) => v.hasAttribute('disablepictureinpicture'))));
@@ -389,6 +412,39 @@ try {
   check('a reel link goes to the home page with Reels hidden', new URL(fb.url()).pathname === '/', fb.url());
   await setSettings({ feeds: {} });
   await fb.close();
+
+  // ---- word filter: blocked words in an address or title; YouTube tiles and videos
+  const wf = await context.newPage();
+  await wf.goto('http://localhost:8787/pages/frame.html?q=nude+photography+tips', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await waitFor(() => wf.url().includes('reason=words'), { timeout: 5000 });
+  check('a search for blocked words is blocked', wf.url().includes('reason=words'), wf.url());
+  await wf.goto('http://localhost:8787/pages/frame.html?q=sussex+bikini+bottom+essex', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 1000));
+  check('whole words only, and Bikini Bottom is fine', !wf.url().includes('/blocked/'), wf.url());
+  await wf.goto('http://youtube.test:8787/watch?v=learn1', { waitUntil: 'domcontentloaded' });
+  await wf.evaluate(() => {
+    const tile = (id, title) => {
+      const t = document.createElement('ytd-compact-video-renderer');
+      t.id = id;
+      t.innerHTML = `<a id="video-title" title="${title}">${title}</a>`;
+      document.body.append(t);
+    };
+    tile('tile-ok', 'Fixing a leaky faucet');
+    tile('tile-bad', 'Artistic NUDE photography session');
+    tile('tile-fancy', '𝓑𝓲𝓴𝓲𝓷𝓲 try on haul');
+  });
+  const wfShown = (sel) => wf.evaluate((s) => getComputedStyle(document.querySelector(s)).display !== 'none', sel);
+  await waitFor(async () => !(await wfShown('#tile-bad')), { timeout: 3000 });
+  check('YouTube videos with blocked words are hidden, others stay',
+    (await wfShown('#tile-ok')) && !(await wfShown('#tile-bad')) && !(await wfShown('#tile-fancy')));
+  await setSettings({ blockedWords: ['faucet'] });
+  await waitFor(async () => !(await wfShown('#tile-ok')), { timeout: 3000 });
+  check('words of your own apply too', !(await wfShown('#tile-ok')));
+  await setSettings({ blockedWords: [], wordFilter: false });
+  await waitFor(async () => await wfShown('#tile-bad'), { timeout: 3000 });
+  check('turning the word filter off shows them again', await wfShown('#tile-bad'));
+  await setSettings({ wordFilter: true });
+  await wf.close();
 
   // ---- engine info + popup render
   const info = await engineInfo();

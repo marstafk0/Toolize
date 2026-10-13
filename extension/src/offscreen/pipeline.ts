@@ -14,13 +14,18 @@ export interface ClassifyJob {
 }
 
 const CACHE_MAX = 5000;
-const MAX_BATCH = 16;
+/**
+ * The GPU is shared with the whole browser: one long inference call stalls drawing in
+ * every window (users saw Brave and Edge freeze on image-heavy sites). Batches stay
+ * small enough that each call is short.
+ */
+const MAX_BATCH = 8;
 /**
  * Jobs in flight. On a GPU they mostly wait on the network (the refetch is the slowest
  * step on real sites), so this is generous. Without one, inference shares the thread
  * with cropping and extra jobs only compete with it, so it stays low.
  */
-const MAX_CONCURRENT_JOBS = { gpu: 16, cpu: 6 };
+const MAX_CONCURRENT_JOBS = { gpu: 8, cpu: 6 };
 /** Decodes + crops at once. More than this and they slow each other down. */
 const MAX_CONCURRENT_DECODES = 4;
 

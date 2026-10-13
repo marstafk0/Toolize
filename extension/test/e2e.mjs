@@ -420,6 +420,38 @@ try {
   await waitFor(async () => await shown('#grid'), { timeout: 3000 });
   check('turning a toggle off shows that part again (bots still hidden)',
     (await shown('#grid')) && (await shown('#sections')) && !(await shown('#t-bot-text')));
+
+  // Trusted channels: videos (by the player's own channel) and thumbnails (by the tile's
+  // channel link) skip the image check; other channels don't.
+  await setSettings({ trustedChannels: ['Max the Meat Guy'] });
+  await yt.evaluate(() => {
+    const player = (id, author) => {
+      const p = document.createElement('div');
+      p.className = 'html5-video-player';
+      p.getVideoData = () => ({ author, isLive: false });
+      const v = document.createElement('video');
+      Object.assign(v, { src: '/media/clip-a.webm', muted: true, loop: true, autoplay: true, id });
+      v.dataset.tzTest = '__tz_test_flag';
+      p.append(v);
+      document.body.append(p);
+      v.play().catch(() => {});
+    };
+    player('v-trusted', 'Max the Meat Guy');
+    player('v-other', 'Someone Else');
+    const tile = (id, handle) => {
+      const t = document.createElement('ytd-rich-item-renderer');
+      t.innerHTML = `<a href="/@${handle}">${handle}</a><img id="${id}" src="/img/320x180/${id}__tz_test_flag.png">`;
+      document.body.append(t);
+    };
+    tile('img-trusted', 'MaxTheMeatGuy');
+    tile('img-other', 'SomeoneElse');
+  });
+  const tz = (id) => yt.evaluate((id) => document.getElementById(id)?.getAttribute('data-tz'), id);
+  await waitFor(async () => (await tz('v-other')) === 'blocked' && (await tz('img-other')) === 'blocked' && (await tz('v-trusted')) === 'skip', { timeout: 15_000 });
+  const trust = { paused: await yt.evaluate(() => document.getElementById('v-trusted').paused), video: await tz('v-trusted'), img: await tz('img-trusted'), otherVideo: await tz('v-other'), otherImg: await tz('img-other') };
+  check('a trusted channel\'s videos and thumbnails skip the check; others are still blurred',
+    trust.video === 'skip' && !trust.paused && trust.img === 'skip' && trust.otherVideo === 'blocked' && trust.otherImg === 'blocked', JSON.stringify(trust));
+  await setSettings({ trustedChannels: [] });
   await yt.close();
 
   await setSettings({ feeds: { 'facebook.feed': true, 'facebook.stories': true, 'facebook.reels': true } });

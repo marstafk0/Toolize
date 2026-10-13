@@ -1,3 +1,4 @@
+import { channelKey, isYouTube, tileChannels, trustedSet } from '../shared/channels';
 import type { ImageSource } from '../shared/messages';
 import { decide, isExplicit, PRESETS, type ClassifyResult } from '../shared/policy';
 import type { Settings } from '../shared/settings';
@@ -103,6 +104,7 @@ export class ImageWatcher {
     // Size checks come before any cached verdict: an image classified while it was still
     // loading turns out to be an icon once decoded, and icons are never judged.
     if (unjudged(img)) return this.stamper.set(img, 'skip');
+    if (this.fromTrustedChannel(img)) return this.stamper.set(img, 'skip');
 
     const known = this.client.cached(t.key);
     if (known) return this.apply(img, t, known);
@@ -165,6 +167,13 @@ export class ImageWatcher {
       (r2) => this.current(img, t) && this.apply(img, t, r2),
       () => this.current(img, t) && this.stamper.set(img, 'error'),
     );
+  }
+
+  /** A thumbnail in a YouTube list tile from a channel the user trusts. */
+  private fromTrustedChannel(img: HTMLImageElement): boolean {
+    if (!this.settings?.trustedChannels?.length || !isYouTube(location.hostname)) return false;
+    const trusted = trustedSet(this.settings.trustedChannels);
+    return tileChannels(img).some((name) => trusted.has(channelKey(name)));
   }
 
   /** Still the same image, and protection still on? */

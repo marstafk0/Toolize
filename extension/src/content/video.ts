@@ -1,4 +1,5 @@
 import { decide, isObviouslyExplicit, PRESETS } from '../shared/policy';
+import { channelKey, isYouTube, trustedSet } from '../shared/channels';
 import { isLiveSite, type Settings } from '../shared/settings';
 import { ClassifyClient, isFetchFailure } from './client';
 import type { Stamper, State } from './state';
@@ -31,6 +32,8 @@ const SLOW_CLASSIFIER_MS = 400;
  */
 const WINDOW = 3;
 const FLAGGED_TO_BLUR = 2;
+/** Longest a YouTube video waits for its player to name the channel (trusted channels). */
+const CHANNEL_WAIT_MS = 1500;
 /** Consecutive clean frames needed to reveal — stops borderline clips from strobing. */
 const CLEAN_STREAK = 3;
 /** Videos sampled at once, largest first. */
@@ -66,8 +69,10 @@ interface Track {
    */
   live?: boolean;
   lastDuration?: number;
-  /** Exempt as a live stream on a live-stream site (allowLiveStreams). */
+  /** Exempt: a live stream on a live-stream site (allowLiveStreams), or a trusted channel. */
   exempt?: boolean;
+  /** When the track started, to bound the wait for YouTube to name the channel. */
+  seenAt: number;
 }
 
 /** The video's pixels can't be read at all; retrying won't change that. */
@@ -135,7 +140,7 @@ export class VideoWatcher {
     let t = this.tracks.get(video);
     const src = video.currentSrc || video.src;
     if (!t || t.src !== src) {
-      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: FIRST_SAMPLE_MS, nextAt: 0, failures: 0 };
+      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: FIRST_SAMPLE_MS, nextAt: 0, failures: 0, seenAt: performance.now() };
       this.tracks.set(video, t);
       this.io.observe(video);
       this.stamper.set(video, this.pendingState());
@@ -197,7 +202,7 @@ export class VideoWatcher {
    */
   private async tick(): Promise<void> {
     if (document.hidden || !this.settings?.enabled) return;
-    this.exemptLive();
+    const waitForChannel = this.exempt();
     const now = performance.now();
     // When the classifier is saturated, sample one video at a time: live frames must
     // not starve the images and backgrounds waiting behind them.
@@ -208,6 +213,9 @@ export class VideoWatcher {
       .filter((v) => {
         const t = this.tracks.get(v);
         if (!t || t.dead || t.exempt || now < t.nextAt) return false;
+        // With trusted channels set, don't judge a YouTube video before its player has
+        // said whose it is: a first flagged frame would pause a trusted Short.
+        if (waitForChannel && !v.hasAttribute('data-tz-author') && now - t.seenAt < CHANNEL_WAIT_MS) return false;
         return !v.paused || t.stillAt !== v.currentTime;
       })
       .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)
@@ -297,14 +305,23 @@ export class VideoWatcher {
    * never sampled or paused. Re-checked every tick, since YouTube reuses one <video>
    * as you move between a stream and a regular video.
    */
-  private exemptLive(): void {
+  /**
+   * Live streams (allowLiveStreams) and trusted YouTube channels are left alone.
+   * Returns whether trusted channels apply here (so sampling can wait for the channel).
+   */
+  private exempt(): boolean {
     const allow = !!this.settings?.allowLiveStreams && isLiveSite(location.hostname);
+    const trusted = isYouTube(location.hostname) ? trustedSet(this.settings?.trustedChannels) : null;
     for (const v of this.candidates) {
       const t = this.tracks.get(v);
       if (!t) continue;
-      const exempt = allow && isLive(v);
+      // The channel comes from YouTube's player, mirrored by the MAIN-world hook.
+      const exempt =
+        (allow && isLive(v)) || (!!trusted?.size && trusted.has(channelKey(v.getAttribute('data-tz-author') ?? '')));
       if (exempt) {
+        if (!t.exempt && t.verdict === 'blocked' && v.paused) v.play().catch(() => {}); // we paused it
         t.exempt = true;
+        t.verdict = 'skip';
         this.stamper.set(v, 'skip'); // no-op when already skip
       } else if (t.exempt) {
         t.exempt = false;
@@ -316,6 +333,7 @@ export class VideoWatcher {
         this.stamper.set(v, this.pendingState());
       }
     }
+    return !!trusted?.size;
   }
 
   /**

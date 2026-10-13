@@ -76,20 +76,27 @@ import blurCss from '../shared/blur.css';
   // so reliably (duration is finite and barely moves, and the page metadata is gone
   // after in-app navigation). Mirror its answer onto the <video> for the isolated
   // world, which only honours it on the live-stream sites.
-  if (/(^|\.)youtube\.com$/.test(location.hostname)) {
-    type Player = HTMLElement & { getVideoData?: () => { isLive?: boolean } };
+  //
+  // Same for the channel (trusted channels skip the image check). Every player counts:
+  // the main one, the Shorts player and the feed's hover previews.
+  if (/(^|\.)youtube\.com$/.test(location.hostname) || (__DEV__ && location.hostname === 'youtube.test')) {
+    type Player = HTMLElement & { getVideoData?: () => { isLive?: boolean; author?: string } };
     setInterval(() => {
-      const player = document.getElementById('movie_player') as Player | null;
-      if (!player) return;
-      const v = player.querySelector('video');
-      if (!v) return;
-      let live = false;
-      try {
-        live = player.getVideoData?.()?.isLive === true;
-      } catch {
-        /* player not ready */
+      for (const player of document.querySelectorAll<Player>('.html5-video-player')) {
+        const v = player.querySelector('video');
+        if (!v) continue;
+        let live = false;
+        let author = '';
+        try {
+          const data = player.getVideoData?.();
+          live = data?.isLive === true;
+          author = data?.author ?? '';
+        } catch {
+          /* player not ready */
+        }
+        if (live !== v.hasAttribute('data-tz-live')) v.toggleAttribute('data-tz-live', live);
+        if (author !== (v.getAttribute('data-tz-author') ?? '')) v.setAttribute('data-tz-author', author);
       }
-      if (live !== v.hasAttribute('data-tz-live')) v.toggleAttribute('data-tz-live', live);
     }, 500);
   }
 

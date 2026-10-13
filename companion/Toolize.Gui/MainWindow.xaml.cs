@@ -96,6 +96,7 @@ public partial class MainWindow : Window
             WordFilterBox.IsChecked = s.Settings.WordFilter;
             // Don't overwrite what the user is typing on every refresh.
             if (!WordsBox.IsKeyboardFocusWithin) WordsBox.Text = string.Join(Environment.NewLine, s.Settings.BlockedWords ?? []);
+            if (!ChannelsBox.IsKeyboardFocusWithin) ChannelsBox.Text = string.Join(Environment.NewLine, s.Settings.TrustedChannels ?? []);
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -178,6 +179,8 @@ public partial class MainWindow : Window
             WordFilter = WordFilterBox.IsChecked == true,
             BlockedWords = WordsBox.Text.Split(['\r', '\n']).Select(w => w.Trim()).Where(w => w.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            TrustedChannels = ChannelsBox.Text.Split(['\r', '\n']).Select(w => w.Trim()).Where(w => w.Length > 0)
+                .DistinctBy(SettingsPolicy.ChannelKey).ToList(),
             Enforce = EnforceBox.IsChecked == true,
             BlockIncognito = BlockIncognitoBox.IsChecked == true,
             BlockOtherExtensions = BlockOtherExtBox.IsChecked == true,

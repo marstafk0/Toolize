@@ -20,6 +20,8 @@ export interface Settings {
   wordFilter: boolean;
   /** The user's own words, on top of DEFAULT_WORDS (shared/words.ts). */
   blockedWords: string[];
+  /** YouTube channels whose videos and thumbnails skip the image check (shared/channels.ts). */
+  trustedChannels: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   feeds: {},
   wordFilter: true,
   blockedWords: [],
+  trustedChannels: [],
 };
 
 /** Sites whose live streams `allowLiveStreams` exempts, matched with their subdomains. */

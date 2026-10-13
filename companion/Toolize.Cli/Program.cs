@@ -30,6 +30,24 @@ try
             await SetAsync(rest.Skip(1).ToArray());
             break;
 
+        case "trust":
+        {
+            // toolize trust | trust add <channel> | trust remove <channel>
+            var current = (await Ask(Verbs.GetSettings)).DataAs<Settings>()!;
+            var channels = new List<string>(current.TrustedChannels ?? []);
+            var (action, name) = (rest.Skip(1).FirstOrDefault(), string.Join(' ', rest.Skip(2)).Trim());
+            if (action is null) { Console.WriteLine(channels.Count == 0 ? "(no trusted YouTube channels)" : string.Join(Environment.NewLine, channels)); break; }
+            if (name.Length == 0) throw new ArgumentException("usage: toolize trust add|remove <channel name or @handle>");
+            var key = SettingsPolicy.ChannelKey(name);
+            if (action == "add" && !channels.Any(c => SettingsPolicy.ChannelKey(c) == key)) channels.Add(name);
+            else if (action == "remove") channels.RemoveAll(c => SettingsPolicy.ChannelKey(c) == key);
+            else if (action != "add") throw new ArgumentException($"unknown trust action '{action}'");
+            var response = await client.SendAsync(Verbs.SetSettings, new SetSettingsArgs(current with { TrustedChannels = channels }));
+            if (!response.Ok) { Console.Error.WriteLine(response.Error); return 4; }
+            Console.WriteLine($"{channels.Count} trusted channel(s)");
+            break;
+        }
+
         case "words":
         {
             // toolize words | words add <word> | words remove <word>
@@ -157,7 +175,7 @@ try
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, words, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, words, trust, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
             return 2;
     }
     return 0;

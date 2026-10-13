@@ -37,6 +37,10 @@ flash-drive tier; see *The unlock key* below for what each tier actually guarant
 
 On by default. A page whose address or title contains a blocked word is replaced with the blocked page, which covers searches too. On YouTube, videos, Shorts and channels whose title or channel name contains one are hidden, and a matching video's page is blocked. The built-in list covers explicit and revealing terms ("nude", "bikini" but not "Bikini Bottom", "try on haul", …); add your own in the desktop app or with `toolize words add <word>`. Matching is whole-word ("sex" doesn't block "Essex") and sees through fancy Unicode fonts and lookalike letters. Turning it off or removing a word needs the key. It works in every browser Toolize runs in; it doesn't read text in other Windows apps.
 
+## Trusted YouTube channels
+
+The image checker mistakes some things for skin, raw meat most of all: butchery and cooking Shorts score as high as actual porn, so no sensitivity setting fixes them. Add those channels in the desktop app (**Trusted YouTube channels**) or with `toolize trust add "Channel Name"`, and their videos, Shorts and thumbnails skip the image check. The word filter still applies to them. Adding a channel needs the key; removing one doesn't.
+
 ## Feeds
 
 Optional, per site, in the popup (under **Feeds**) or the desktop app. Hiding something never needs the key; showing it again does.

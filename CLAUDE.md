@@ -98,6 +98,15 @@ about what each tier actually guarantees.
   entries are patterns. Turning it off or removing a word is weakening. Idea from
   DuckySteals/word-guard (no license, so reimplemented, own list). Browser-only; a
   Windows-wide version would need a per-user UI Automation agent (phase 7 territory).
+- **Trusted YouTube channels** (`trustedChannels`, shared/channels.ts): videos, Shorts
+  and list thumbnails from these channels skip the image check. For channels the model
+  reliably misjudges — measured: butchery/cooking Shorts score porn 0.94–0.95 on raw
+  meat, on up to 11 frames in a row, so no threshold separates them. The channel comes
+  from the player's own `getVideoData().author` (mirrored to `data-tz-author` on every
+  `.html5-video-player`'s video) and, for thumbnails, the tile's `/@handle` link or name.
+  Names compare as lowercase letters+digits ("Max the Meat Guy" = "@MaxTheMeatGuy").
+  With any trusted channel set, a YouTube video's first sample waits (≤1.5 s) for the
+  channel, or a trusted Short is paused on frame one. Adding a channel is weakening.
 - **YouTube comments** show by default; hiding them is the `youtube.comments` toggle.
   (A "how-to videos only" mode keyed on category + title was built in 0.7.0 and dropped
   at the user's request in 0.7.1; old settings carrying `youtubeComments` still load.)

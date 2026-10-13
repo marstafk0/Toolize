@@ -276,6 +276,18 @@ public sealed class FeedSettingsTests
     }
 
     [Fact]
+    public void Trusting_a_channel_needs_the_key_and_untrusting_does_not()
+    {
+        var max = Settings.Default with { TrustedChannels = ["Max the Meat Guy"] };
+        Assert.True(SettingsPolicy.IsWeakening(Settings.Default, max));
+        Assert.False(SettingsPolicy.IsWeakening(max, Settings.Default));
+        // The same channel written as its handle is not a new one.
+        Assert.False(SettingsPolicy.IsWeakening(max, max with { TrustedChannels = ["@MaxTheMeatGuy"] }));
+        Assert.Contains("trusting the YouTube channel The Bearded Butchers",
+            SettingsPolicy.Weakenings(max, max with { TrustedChannels = ["Max the Meat Guy", "The Bearded Butchers"] }));
+    }
+
+    [Fact]
     public void The_catalog_is_the_extension_one()
     {
         var keys = FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key).ToList();

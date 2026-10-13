@@ -113,6 +113,17 @@
 
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
+                        <TextBlock Style="{StaticResource CardTitle}" Text="TRUSTED YOUTUBE CHANNELS" />
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,0"
+                                   Text="Videos, Shorts and thumbnails from these channels skip the image check. For channels the checker gets wrong, like butchery and cooking channels (raw meat looks like skin to it). One name or @handle per line. Adding a channel needs your key; the word filter still applies." />
+                        <TextBox x:Name="ChannelsBox" Margin="0,8,0,0" Height="60" AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" FontFamily="Consolas" />
+                        <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="Save channels" Click="OnSettingChanged" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="FEEDS" />
                         <TextBlock Style="{StaticResource Hint}" Margin="0,0,0,4"
                                    Text="Hide the endless parts of these sites. Turning one back on needs your key." />

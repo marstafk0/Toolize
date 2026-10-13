@@ -40,6 +40,13 @@ public sealed record Settings
     /// <summary>The user's own words on top of the built-in list. Removing one is weakening.</summary>
     public List<string> BlockedWords { get; init; } = new();
 
+    /// <summary>
+    /// YouTube channels whose videos, Shorts and thumbnails skip the image check, for
+    /// channels the model reliably misjudges (raw meat scores as porn). Adding one is
+    /// weakening; the word filter still applies to them.
+    /// </summary>
+    public List<string> TrustedChannels { get; init; } = new();
+
     // ---- enforcement (phase 5). Off by default: enforcement changes the browser for
     // every profile on the machine, so it is something the user turns on deliberately.
 
@@ -78,6 +85,7 @@ public static class SettingsPolicy
         || FeedsTurnedOff(before, after).Any()
         || (before.WordFilter && !after.WordFilter)
         || WordsRemoved(before, after).Any()
+        || ChannelsTrusted(before, after).Any()
         || (before.Enforce && !after.Enforce)
         || (before.BlockIncognito && !after.BlockIncognito)
         || (before.BlockOtherExtensions && !after.BlockOtherExtensions)
@@ -94,6 +102,17 @@ public static class SettingsPolicy
         var kept = new HashSet<string>((after.BlockedWords ?? []).Select(w => w.Trim()), StringComparer.OrdinalIgnoreCase);
         return (before.BlockedWords ?? []).Select(w => w.Trim()).Where(w => w.Length > 0 && !kept.Contains(w));
     }
+
+    /// <summary>Channels trusted after the change and not before. "Max the Meat Guy" = "@MaxTheMeatGuy".</summary>
+    private static IEnumerable<string> ChannelsTrusted(Settings before, Settings after)
+    {
+        var had = new HashSet<string>((before.TrustedChannels ?? []).Select(ChannelKey));
+        return (after.TrustedChannels ?? []).Where(c => ChannelKey(c).Length > 0 && !had.Contains(ChannelKey(c)));
+    }
+
+    /// <summary>Same rule as the extension's channelKey: lowercase letters and digits only.</summary>
+    public static string ChannelKey(string name) =>
+        new string(name.ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     private static int Strength(Preset p) => p switch
     {
@@ -115,6 +134,7 @@ public static class SettingsPolicy
         foreach (var key in FeedsTurnedOff(before, after)) list.Add($"showing {FeedCatalog.Describe(key)} again");
         if (before.WordFilter && !after.WordFilter) list.Add("turning off the word filter");
         if (WordsRemoved(before, after).Any()) list.Add("removing blocked words");
+        foreach (var c in ChannelsTrusted(before, after)) list.Add($"trusting the YouTube channel {c}");
         if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
         if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");
         if (before.BlockOtherExtensions && !after.BlockOtherExtensions) list.Add("re-allowing other extensions");

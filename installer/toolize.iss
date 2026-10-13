@@ -96,8 +96,8 @@ var
   // If the first is true and the second isn't, setup failed or was cancelled midway.
   ServiceStopped: Boolean;
   Installed: Boolean;
-  // Programs moved aside before the copy, as "original=moved" pairs (see MoveAsideBinaries).
-  MovedAside: TStringList;
+  // Programs moved aside before the copy: MovedFrom[i] now lives at MovedTo[i].
+  MovedFrom, MovedTo: TStringList;
 
 // The browser can start Toolize.NativeHost.exe again at any moment (it bridges the
 // extension to the service), and anything still running keeps its .exe and .dlls
@@ -112,7 +112,8 @@ var
   Dir, Name, Ext, Moved: String;
   N: Integer;
 begin
-  MovedAside := TStringList.Create;
+  MovedFrom := TStringList.Create;
+  MovedTo := TStringList.Create;
   Dir := ExpandConstant('{app}');
   if FindFirst(Dir + '\*.old', FindRec) then
   try
@@ -135,7 +136,10 @@ begin
           Moved := Dir + '\' + Name + '.' + IntToStr(N) + '.old';
         until not FileExists(Moved);
         if RenameFile(Dir + '\' + Name, Moved) then
-          MovedAside.Add(Dir + '\' + Name + '=' + Moved);
+        begin
+          MovedFrom.Add(Dir + '\' + Name);
+          MovedTo.Add(Moved);
+        end;
       end;
     until not FindNext(FindRec);
   finally
@@ -148,14 +152,12 @@ end;
 procedure RestoreMovedAside();
 var
   I: Integer;
-  Original: String;
 begin
-  if MovedAside = nil then exit;
-  for I := 0 to MovedAside.Count - 1 do
+  if MovedFrom = nil then exit;
+  for I := 0 to MovedFrom.Count - 1 do
   begin
-    Original := MovedAside.Names[I];
-    DeleteFile(Original);
-    RenameFile(MovedAside.ValueFromIndex[I], Original);
+    DeleteFile(MovedFrom[I]);
+    RenameFile(MovedTo[I], MovedFrom[I]);
   end;
 end;
 
@@ -164,9 +166,9 @@ procedure DeleteMovedAside();
 var
   I: Integer;
 begin
-  if MovedAside = nil then exit;
-  for I := 0 to MovedAside.Count - 1 do
-    DeleteFile(MovedAside.ValueFromIndex[I]);
+  if MovedTo = nil then exit;
+  for I := 0 to MovedTo.Count - 1 do
+    DeleteFile(MovedTo[I]);
 end;
 
 // Inno's StringChangeEx returns a count, not the string; wrap it for readability.

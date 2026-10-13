@@ -336,7 +336,7 @@ export class VideoWatcher {
     const shown = t.verdict === 'clean';
     const blur = obvious || frame === 'flagged' || (frame === 'doubtful' && !shown);
     t.cleanStreak = blur ? 0 : CLEAN_STREAK;
-    this.setVerdict(video, t, blur ? 'blocked' : 'clean');
+    this.setVerdict(video, t, blur ? 'blocked' : 'clean', false); // already paused
   }
 
   private record(video: HTMLVideoElement, t: Track, frame: Frame, obvious: boolean): void {
@@ -345,25 +345,29 @@ export class VideoWatcher {
     t.cleanStreak = frame === 'clean' ? t.cleanStreak + 1 : 0;
 
     const flagged = t.recent.filter((f) => f === 'flagged').length;
+    const confirmed = obvious || flagged >= FLAGGED_TO_BLUR;
     const shown = t.verdict === 'clean';
-    const blur = shown
-      ? obvious || flagged >= FLAGGED_TO_BLUR
-      : t.recent.some((f) => f !== 'clean'); // not shown yet: anything doubtful keeps it hidden
+    // Not shown yet: anything doubtful keeps it hidden. But only a confirmed hit pauses
+    // it — a paused video yields no new frames, so a doubtful one could never clear
+    // itself (Shorts sat blurred and paused for good).
+    const blur = confirmed || (!shown && t.recent.some((f) => f !== 'clean'));
     if (frame !== 'clean') t.every = SAMPLE_MS; // something was off: look again soon
     if (blur) {
-      this.setVerdict(video, t, 'blocked');
-    } else if (t.cleanStreak >= CLEAN_STREAK) {
-      // Stable and clean: ease off, so a long video doesn't classify forever at 1/s.
+      this.setVerdict(video, t, 'blocked', confirmed);
+    } else if (t.cleanStreak >= CLEAN_STREAK || t.recent.every((f) => f === 'clean')) {
+      // A streak only matters after something was off; a video that has looked clean
+      // from its first frame is shown straight away, like an image. Then ease off, so a
+      // long video doesn't classify forever at 1/s.
       t.every = Math.min(MAX_SAMPLE_MS, Math.max(SAMPLE_MS, t.every * 1.5));
       this.setVerdict(video, t, 'clean');
     }
   }
 
-  private setVerdict(video: HTMLVideoElement, t: Track, verdict: State): void {
+  private setVerdict(video: HTMLVideoElement, t: Track, verdict: State, pause = verdict === 'blocked'): void {
     if (t.exempt) return; // a sample that was already in flight when the exemption began
     t.verdict = verdict;
     this.stamper.set(video, verdict);
-    if (verdict === 'blocked' && !t.live) video.pause();
+    if (verdict === 'blocked' && pause && !t.live) video.pause();
   }
 
   private pendingState(): State {

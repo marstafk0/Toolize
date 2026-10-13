@@ -249,6 +249,7 @@ class Semaphore {
 }
 
 const devFailed = new Set<string>();
+const devMild = new Set<string>();
 
 /** Dev-build-only: the first request for a `__tz_test_fail_once` tag fails, as if transiently. */
 function devFailOnce(req: ClassifyJob): boolean {
@@ -268,6 +269,11 @@ function devOverride(req: ClassifyJob, whole: Scores, tiles?: Scores): [Scores, 
   // Video frames arrive as data URLs, so elements carry the tag as an attribute instead.
   const tag = req.testTag ?? ('url' in source ? source.url : 'videoUrl' in source ? source.videoUrl : '');
   const neutral: Scores = { drawing: 0, hentai: 0, neutral: 1, porn: 0, sexy: 0 };
+  // Over the balanced threshold but not obviously explicit, for the first request only.
+  if (tag.includes('__tz_test_mild_once') && !devMild.has(tag)) {
+    devMild.add(tag);
+    return [{ ...neutral, neutral: 0.4, porn: 0.6 }, tiles && { ...neutral, neutral: 0.4, porn: 0.6 }];
+  }
   if (tag.includes('__tz_test_flag')) return [{ ...neutral, neutral: 0.01, porn: 0.99 }, tiles && { ...neutral, porn: 0.99 }];
   if (tag.includes('__tz_test_borderline'))
     return [{ ...neutral, neutral: 0.55, porn: 0.45 }, tiles && { ...neutral, neutral: 0.1, porn: 0.9 }];

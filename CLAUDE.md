@@ -47,8 +47,11 @@ about what each tier actually guarantees.
 - **Video:** sample playing videos near the viewport ~1/s. Before a video is first
   shown, any flagged or borderline frame in the last 3 keeps it blurred (safe reveal).
   Once it plays in the clear, it takes 2 flagged frames of the last 3, or one obviously
-  explicit frame (porn/hentai > threshold + 0.2), to blur + pause it: single odd frames
-  were blurring ordinary videos mid-watch. Reveal only after 3 consecutive clean frames. Back off to
+  explicit frame (porn/hentai > threshold + 0.2), to blur it: single odd frames were
+  blurring ordinary videos mid-watch. **Only that confirmed rule pauses** — a paused
+  video yields no new frames, so pausing on a doubtful frame froze Shorts and feed
+  previews blurred for good. A video clean from its first frame shows at once; after
+  anything doubtful it needs 3 consecutive clean frames. Back off to
   one sample every few seconds while a verdict is stable; drop to one video at a time
   when the classifier is saturated, so live frames never starve images and backgrounds.
 - **Thresholds:** blur if porn > 0.55 OR hentai > 0.55 OR sexy > 0.75 (balanced).

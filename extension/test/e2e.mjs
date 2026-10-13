@@ -146,28 +146,53 @@ try {
   const blockedVideos = (videos ?? []).filter((i) => i.expect === 'blocked');
   check('flagged videos are paused, except live ones', blockedVideos.length === 4 && blockedVideos.every((i) => i.paused === !i.live),
     JSON.stringify(blockedVideos.map((i) => `${i.live ? 'live' : 'vod'}:${i.paused}`)));
-  // A video playing in the clear isn't blurred by one doubtful frame, only by repeated
-  // or obvious ones.
-  await page.evaluate(() => {
+  // One frame over the threshold doesn't blur a video that is already playing in the
+  // clear; an obviously explicit one does.
+  const addVideo = (id, tag) => page.evaluate(([id, tag]) => {
     const v = document.createElement('video');
-    Object.assign(v, { src: document.querySelector('#videos video').src, muted: true, loop: true, autoplay: true, id: 'tolerance' });
+    Object.assign(v, { src: document.querySelector('#videos video').src, muted: true, loop: true, autoplay: true, id });
+    if (tag) v.dataset.tzTest = tag;
     document.getElementById('videos').prepend(v);
     v.play().catch(() => {});
-  });
-  const tolState = () => page.evaluate(() => document.getElementById('tolerance').getAttribute('data-tz'));
-  await waitFor(async () => (await tolState()) === 'clean', { timeout: 15_000 });
-  await page.evaluate(() => (document.getElementById('tolerance').dataset.tzTest = '__tz_test_borderline'));
+  }, [id, tag]);
+  const vState = (id) => page.evaluate((id) => {
+    const v = document.getElementById(id);
+    return { state: v.getAttribute('data-tz'), paused: v.paused };
+  }, id);
+  await addVideo('tolerance');
+  await waitFor(async () => (await vState('tolerance')).state === 'clean', { timeout: 15_000 });
+  await page.evaluate(() => (document.getElementById('tolerance').dataset.tzTest = '__tz_test_mild_once_t'));
   const seen = new Set();
-  for (const end = Date.now() + 2500; Date.now() < end; ) {
-    seen.add(await tolState());
+  for (const end = Date.now() + 6000; Date.now() < end; ) {
+    seen.add((await vState('tolerance')).state);
     await page.waitForTimeout(100);
   }
-  await page.evaluate(() => delete document.getElementById('tolerance').dataset.tzTest);
-  check('a doubtful frame or two does not blur a video that is already playing', seen.size === 1 && seen.has('clean'), [...seen].join(','));
+  check('one flagged frame does not blur a video that is already playing', seen.size === 1 && seen.has('clean'), [...seen].join(','));
   await page.evaluate(() => (document.getElementById('tolerance').dataset.tzTest = '__tz_test_flag'));
-  const obvious = await waitFor(async () => (await tolState()) === 'blocked', { timeout: 6000 });
-  check('an obviously explicit frame still blurs it straight away', !!obvious, await tolState());
+  const obvious = await waitFor(async () => (await vState('tolerance')).state === 'blocked', { timeout: 6000 });
+  check('an obviously explicit frame still blurs it straight away', !!obvious, JSON.stringify(await vState('tolerance')));
   await page.evaluate(() => document.getElementById('tolerance').remove());
+
+  // A new video (a Short, a feed preview) with a flagged frame stays blurred but keeps
+  // playing, so it can clear itself; pausing it froze Shorts blurred for good.
+  await addVideo('doubtful', '__tz_test_mild_once_d');
+  const blurred = await waitFor(async () => {
+    const s = await vState('doubtful');
+    return s.state === 'blocked' ? s : null;
+  }, { timeout: 10_000, interval: 50 });
+  await page.waitForTimeout(300);
+  check('a new video with one flagged frame is blurred but not paused', !!blurred && !(await vState('doubtful')).paused,
+    JSON.stringify(await vState('doubtful')));
+  const cleared = await waitFor(async () => (await vState('doubtful')).state === 'clean', { timeout: 10_000 });
+  check('...and clears itself once its frames look clean', !!cleared, JSON.stringify(await vState('doubtful')));
+  await page.evaluate(() => document.getElementById('doubtful').remove());
+
+  // A video that looks clean from its first frame is shown at once, not after a streak.
+  await addVideo('instant');
+  const firstSeen = Date.now();
+  await waitFor(async () => (await vState('instant')).state === 'clean', { timeout: 10_000, interval: 50 });
+  check('a clean new video is shown after its first frame', Date.now() - firstSeen < 1500, `${Date.now() - firstSeen} ms`);
+  await page.evaluate(() => document.getElementById('instant').remove());
 
   check('picture-in-picture is refused', (await page.evaluate(() => window.__tryPip())) === 'NotAllowedError');
   check('every video carries disablepictureinpicture (what the right-click menu checks)',

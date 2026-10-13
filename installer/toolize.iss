@@ -96,6 +96,78 @@ var
   // If the first is true and the second isn't, setup failed or was cancelled midway.
   ServiceStopped: Boolean;
   Installed: Boolean;
+  // Programs moved aside before the copy, as "original=moved" pairs (see MoveAsideBinaries).
+  MovedAside: TStringList;
+
+// The browser can start Toolize.NativeHost.exe again at any moment (it bridges the
+// extension to the service), and anything still running keeps its .exe and .dlls
+// locked, so copying over them failed and left a half-updated install: a new CLI
+// next to an old Toolize.Core.dll, which then wouldn't start. Windows lets a file in
+// use be renamed, so every program file is moved aside first and the copy never meets
+// a locked file. The moved copies are deleted afterwards, or on the next update if
+// something still has them open.
+procedure MoveAsideBinaries();
+var
+  FindRec: TFindRec;
+  Dir, Name, Ext, Moved: String;
+  N: Integer;
+begin
+  MovedAside := TStringList.Create;
+  Dir := ExpandConstant('{app}');
+  if FindFirst(Dir + '\*.old', FindRec) then
+  try
+    repeat
+      DeleteFile(Dir + '\' + FindRec.Name); // leftovers from the last update
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+  if FindFirst(Dir + '\*', FindRec) then
+  try
+    repeat
+      Name := FindRec.Name;
+      Ext := Lowercase(ExtractFileExt(Name));
+      if ((Ext = '.exe') or (Ext = '.dll')) and (Pos('unins', Lowercase(Name)) <> 1) then
+      begin
+        N := 0;
+        repeat
+          N := N + 1;
+          Moved := Dir + '\' + Name + '.' + IntToStr(N) + '.old';
+        until not FileExists(Moved);
+        if RenameFile(Dir + '\' + Name, Moved) then
+          MovedAside.Add(Dir + '\' + Name + '=' + Moved);
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+// Setup failed after moving the old programs aside: put them back exactly, replacing
+// anything half-copied, so the old version runs as before.
+procedure RestoreMovedAside();
+var
+  I: Integer;
+  Original: String;
+begin
+  if MovedAside = nil then exit;
+  for I := 0 to MovedAside.Count - 1 do
+  begin
+    Original := MovedAside.Names[I];
+    DeleteFile(Original);
+    RenameFile(MovedAside.ValueFromIndex[I], Original);
+  end;
+end;
+
+// Installed fine: the moved-aside copies can go (ones still in use stay until next time).
+procedure DeleteMovedAside();
+var
+  I: Integer;
+begin
+  if MovedAside = nil then exit;
+  for I := 0 to MovedAside.Count - 1 do
+    DeleteFile(MovedAside.ValueFromIndex[I]);
+end;
 
 // Inno's StringChangeEx returns a count, not the string; wrap it for readability.
 function StringChangeEx2(const S, FromStr, ToStr: string; SupportDBCS: Boolean): string;
@@ -134,6 +206,7 @@ begin
   begin
     WriteNativeHostManifest();
     Installed := True;
+    DeleteMovedAside();
   end;
 end;
 
@@ -146,7 +219,10 @@ var
   ResultCode: Integer;
 begin
   if ServiceStopped and not Installed then
+  begin
+    RestoreMovedAside();
     Exec(ExpandConstant('{sys}\sc.exe'), 'start Toolize', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
 end;
 
 function HasStoreId(): Boolean;
@@ -224,5 +300,6 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.Cli.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Toolize.NativeHost.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
+  MoveAsideBinaries();
   Result := '';
 end;

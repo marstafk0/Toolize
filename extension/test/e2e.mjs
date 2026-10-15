@@ -236,6 +236,28 @@ try {
   check('CSS backgrounds: flagged hidden, gradients and small ones ignored', !!bgs,
     bgs ? '' : JSON.stringify((await collect()).filter((i) => i.kind === 'background').map((i) => `${i.src.slice(0, 40)} ${i.expect}/${i.state}`)));
 
+  // Backgrounds inside nested shadow roots are found by descending only into the roots
+  // under each sampled point (probing every root froze Reddit).
+  await page.evaluate(() => {
+    const outer = document.createElement('div');
+    outer.id = 'bg-shadow';
+    outer.style.cssText = 'width:600px;height:400px';
+    document.querySelector('.bg').before(outer);
+    // Many unrelated roots, like a component-heavy page.
+    for (let i = 0; i < 300; i++) document.body.appendChild(document.createElement('span')).attachShadow({ mode: 'open' });
+    const inner = outer.attachShadow({ mode: 'open' }).appendChild(document.createElement('div'));
+    inner.style.cssText = 'width:600px;height:400px';
+    const el = inner.attachShadow({ mode: 'open' }).appendChild(document.createElement('div'));
+    el.style.cssText = 'width:600px;height:400px;background-size:cover;background-image:url(/img/400x300/bg-shadow__tz_test_flag.png)';
+    outer.scrollIntoView({ block: 'center' });
+  });
+  const shadowBg = await waitFor(() => page.evaluate(() => {
+    const el = document.getElementById('bg-shadow').shadowRoot.firstElementChild.shadowRoot.firstElementChild;
+    return el.getAttribute('data-tz-bg') === 'blocked';
+  }), { timeout: 20_000 });
+  check('a flagged background two shadow roots deep is hidden', !!shadowBg);
+  await page.evaluate(() => document.getElementById('bg-shadow').remove());
+
   // ---- settings: relaxed un-blurs the borderline image; disabling shows everything
   const borderline = () => page.evaluate(() =>
     document.querySelector('img[src*="400x400/x__tz_test_borderline"]').getAttribute('data-tz'));

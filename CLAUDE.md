@@ -373,6 +373,13 @@ Toolize/                      # repo root (the product is "Toolize")
 - `currentSrc` keeps reporting the OLD url until the new image loads, so on a
   `src`/`srcset` change hide the element and wait for the load event. Virtualized lists
   recycle `<img>` nodes constantly.
+- **The background sweep hit-tests a grid of points; never do that per shadow root.**
+  Reddit's posts are thousands of web components, and probing every root at every
+  point spent 58 of 60 s of its main thread in `elementsFromPoint` (scrolling froze, and
+  its bot check looped). The sweep hit-tests the document once per point and descends
+  only into the roots of the top few hits. `node test/reddit-traffic.mjs` measures
+  Reddit with and without the extension in a non-automation launch (Playwright's own
+  launch gets Reddit's captcha); `node test/site-perf.mjs` does YouTube click-to-play.
 - A hidden CSS background reports `background-image: none` afterwards (our own rule), so
   never re-derive its state from computed style — that's a hide/reveal flicker loop.
 - Cross-origin images taint the page canvas; the offscreen doc refetches them with host

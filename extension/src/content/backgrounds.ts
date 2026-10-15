@@ -8,10 +8,14 @@ const MIN_SIDE = 100;
 const COLS = 9;
 const ROWS = 6;
 const SWEEP_DEBOUNCE_MS = 250;
-/** Never sweep more often than this, however much the page churns. */
-const MIN_SWEEP_GAP_MS = 500;
+/** Never sweep more often than this, however much the page churns or scrolls. */
+const MIN_SWEEP_GAP_MS = 1000;
 /** Elements inspected per sweep — a hard ceiling on the work a single sweep can do. */
 const MAX_CANDIDATES = 200;
+/** Nested shadow roots followed under one point. */
+const MAX_SHADOW_DEPTH = 4;
+/** Hits at a point whose shadow roots are probed: the topmost, where the content is. */
+const HOSTS_PER_POINT = 4;
 
 /**
  * CSS background images.
@@ -86,17 +90,27 @@ export class BackgroundWatcher {
   private sweep(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const scopes: (Document | ShadowRoot)[] = [document, ...this.roots()];
+    // Only descend into shadow roots whose host is actually under the point. Hit-testing
+    // every root at every point froze Reddit, whose posts are thousands of components:
+    // 54 points × every root, tens of thousands of hit tests per sweep.
+    const rootOf = new Map<Element, ShadowRoot>();
+    for (const root of this.roots()) rootOf.set(root.host, root);
     const candidates = new Set<Element>();
-    for (let c = 0; c < COLS; c++) {
-      for (let r = 0; r < ROWS; r++) {
-        const x = ((c + 0.5) * w) / COLS;
-        const y = ((r + 0.5) * h) / ROWS;
-        for (const scope of scopes) {
-          // Top few elements at each point: the background often sits on an ancestor.
-          for (const el of scope.elementsFromPoint(x, y).slice(0, 3)) candidates.add(el);
-        }
+    // A root's hits include the hosts around it (retargeted), so remember which roots this
+    // point has already probed.
+    const probe = (scope: Document | ShadowRoot, x: number, y: number, depth: number, done: Set<Node>): void => {
+      done.add(scope);
+      const hits = scope.elementsFromPoint(x, y);
+      // Top few elements at each point: the background often sits on an ancestor.
+      for (const el of hits.slice(0, 3)) candidates.add(el);
+      if (depth >= MAX_SHADOW_DEPTH) return;
+      for (const el of hits.slice(0, HOSTS_PER_POINT)) {
+        const root = rootOf.get(el);
+        if (root && !done.has(root)) probe(root, x, y, depth + 1, done);
       }
+    };
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) probe(document, ((c + 0.5) * w) / COLS, ((r + 0.5) * h) / ROWS, 0, new Set());
     }
     // Reading background-image costs a style recalc; measuring costs layout. Do the
     // cheap one first and only measure the handful of elements that have a background.

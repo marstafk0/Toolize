@@ -38,6 +38,22 @@ about what each tier actually guarantees.
   canvas/WebGL). No network calls for inference, ever. v2 upgrade path: ONNX ViT
   (e.g. Falconsai nsfw_image_detection) via onnxruntime-web behind the existing
   `ImageClassifier` interface.
+- **Safety model (main detector since 0.9.0).** OpenAI CLIP RN50's image tower (MIT) plus
+  an MLP head trained for one question, "hide this?", on 48K labelled NSFW/SFW images,
+  ~2K Commons hard negatives, swimwear/lingerie as "block", and 3K synthetic
+  flat-colour/gradient negatives. It runs in the offscreen doc via onnxruntime-web on
+  **WebGPU only** (~2.5 ms/image in batches of 8; WASM is ~470 ms, too slow), and sees
+  the whole image squashed to 224px. When it ran, `decide()` blocks on
+  `safety > t.safety || nsfwjs.sexy > t.sexyBesideSafety` (balanced 0.5 / 0.85), with no
+  NSFWJS tiles. Without WebGPU, or if it isn't up within 20 s, NSFWJS decides alone as
+  before. Held out, through the extension: 98.1% NSFW caught at 2.6% FP, against
+  86.5% / 7.9% for NSFWJS. Unseen hard-negative categories: 4.4% blurred vs 10.1%. The
+  79 MB file lives in GitHub release `safety-model-v<N>`, pinned by SHA-256 in
+  `extension/models/safety.json`; build.mjs fetches and caches it in `.cache/`. Training,
+  export, evaluation and licences: `tools/safety-model/README.md`. **Never ship
+  MobileCLIP**: Apple's weights licence is non-commercial research only. NudeNet was
+  measured and rejected as a veto (it cleared real lingerie photos with zero
+  detections).
 - **Backends:** WebGL when the GPU is real; SIMD WASM when it isn't (a software GL like
   SwiftShader is several times slower than WASM — detect and prefer WASM). Plain-JS CPU
   is the last resort and is unusably slow (~8s/image); surface that in the popup.

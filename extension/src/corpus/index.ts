@@ -1,5 +1,6 @@
 import { NSFWJS_MODELS, NsfwjsClassifier, type NsfwjsModel } from '../offscreen/nsfwjs-classifier';
 import { ClassifyPipeline } from '../offscreen/pipeline';
+import { SafetyClassifier } from '../offscreen/safety-classifier';
 import { hashString } from '../shared/hash';
 import { decide, PRESETS, type ClassifyResult, type Preset } from '../shared/policy';
 
@@ -57,6 +58,14 @@ async function main(): Promise<void> {
   );
   await classifier.load();
   const pipeline = new ClassifyPipeline(classifier);
+  // Same as the offscreen document: the safety model decides when WebGPU can run it.
+  // ?safety=0 measures NSFWJS alone.
+  const safety = new SafetyClassifier(chrome.runtime.getURL('models/safety/safety.onnx'), chrome.runtime.getURL('ort/ort-wasm-simd-threaded.jsep.wasm'));
+  if (params.get('safety') !== '0') {
+    await safety.load();
+    if (safety.ready) pipeline.useSafety(safety);
+  }
+  const engine = `${classifier.modelName}${safety.ready ? ' + safety' : ` (safety off: ${safety.error ?? 'disabled'})`}`;
 
   const scored: Scored[] = [];
   let done = 0;
@@ -96,7 +105,7 @@ async function main(): Promise<void> {
 
   $('status').textContent =
     `${entries.length} images · ${scored.length - ok.length} failed to load · ${secs.toFixed(1)}s ` +
-    `(${classifier.backend}, ${classifier.modelName})`;
+    `(${classifier.backend}, ${engine})`;
   $('summary').innerHTML = `<table><thead><tr><th>Set</th><th>n</th><th>Metric</th>${presets
     .map((p) => `<th>${p}</th>`)
     .join('')}</tr></thead><tbody>${rows
@@ -122,7 +131,7 @@ async function main(): Promise<void> {
 
   const report = {
     at: new Date().toISOString(),
-    model: classifier.modelName,
+    model: engine,
     backend: classifier.backend,
     presets: PRESETS,
     seconds: secs,
@@ -130,7 +139,7 @@ async function main(): Promise<void> {
     images: scored.map((s) => ({ url: s.url, label: s.label, category: s.category, error: s.error, ...s.result })),
   };
   await fetch(`${server}/corpus/results`, { method: 'POST', body: JSON.stringify(report, null, 1) }).catch(() => {});
-  (window as any).__corpusDone = { rows, total: entries.length, failed: scored.length - ok.length, seconds: secs, backend: classifier.backend };
+  (window as any).__corpusDone = { rows, total: entries.length, failed: scored.length - ok.length, seconds: secs, backend: classifier.backend, engine };
 }
 
 main().catch((e) => {

@@ -3,7 +3,8 @@
 //   node build.mjs --dev     + test hooks (__DEV__) and the corpus regression page
 //   node build.mjs --watch   rebuild on change (implies --dev)
 import * as esbuild from 'esbuild';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -58,6 +59,38 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
     });
     writeFileSync(join(dest, 'model.json'), JSON.stringify({ ...modelJson, weightsManifest: [{ ...group, paths }] }));
   }
+}
+
+// ---- safety model (tools/safety-model/): too big for git, so it lives in a GitHub
+// release, pinned here by SHA-256 and cached in .cache/. A production build without it
+// would silently drop to NSFWJS-only detection, so that fails; dev builds carry on.
+{
+  const pin = JSON.parse(readFileSync(join(root, 'models/safety.json'), 'utf8'));
+  const cached = join(root, '.cache', `safety-${pin.sha256.slice(0, 16)}.onnx`);
+  const sha = (buf) => createHash('sha256').update(buf).digest('hex');
+  let model = existsSync(cached) ? readFileSync(cached) : null;
+  if (!model) {
+    try {
+      console.log(`downloading safety model (${(pin.size / 1e6).toFixed(0)} MB)…`);
+      const res = await fetch(pin.url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      model = Buffer.from(await res.arrayBuffer());
+      if (sha(model) !== pin.sha256) throw new Error('checksum mismatch');
+      mkdirSync(join(root, '.cache'), { recursive: true });
+      writeFileSync(cached, model);
+    } catch (e) {
+      if (!dev) throw new Error(`safety model unavailable: ${e.message}`);
+      console.warn(`safety model unavailable (${e.message}); dev build runs NSFWJS only`);
+      model = null;
+    }
+  }
+  if (model) {
+    mkdirSync(join(out, 'models/safety'), { recursive: true });
+    writeFileSync(join(out, 'models/safety/safety.onnx'), model);
+  }
+  // onnxruntime-web's WebGPU build loads this WASM at runtime.
+  mkdirSync(join(out, 'ort'), { recursive: true });
+  cpSync(join(root, 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm'), join(out, 'ort/ort-wasm-simd-threaded.jsep.wasm'));
 }
 
 // ---- declarativeNetRequest ruleset for known adult sites. Generated from the same

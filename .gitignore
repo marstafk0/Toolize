@@ -5,5 +5,7 @@ extension/test/corpus/**
 !extension/test/corpus/README.md
 out/
 extension/blocklist/
+extension/.cache/
+tools/safety-model/work/
 companion/**/bin/
 companion/**/obj/

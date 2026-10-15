@@ -257,7 +257,7 @@ export class VideoWatcher {
       const th = PRESETS[this.settings!.preset];
       const decision = decide(r, th);
       const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
-      const obvious = isObviouslyExplicit(r.whole, th);
+      const obvious = isObviouslyExplicit(r, th);
       if (still !== undefined) this.recordStill(video, t, still, result, obvious);
       else this.record(video, t, result, obvious);
     } catch (e) {

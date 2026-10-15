@@ -15,7 +15,10 @@ import { findChromium, isolatedDist } from './chromium.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = isolatedDist(join(root, 'dist'));
-const server = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: ['ignore', 'inherit', 'inherit'] });
+// CORPUS_SERVER: another server speaking the same corpus API (e.g. a held-out dataset
+// sample served from memory); otherwise the local test server.
+const base = process.env.CORPUS_SERVER ?? 'http://localhost:8787';
+const server = process.env.CORPUS_SERVER ? null : spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: ['ignore', 'inherit', 'inherit'] });
 const profile = mkdtempSync(join(tmpdir(), 'bb-corpus-'));
 let context;
 let code = 0;
@@ -24,11 +27,12 @@ try {
   context = await chromium.launchPersistentContext(profile, {
     executablePath: findChromium(),
     headless: !process.env.HEADED,
-    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`],
+    // WebGPU for the safety model, headless included.
+    args: [`--disable-extensions-except=${dist}`, `--load-extension=${dist}`, '--enable-unsafe-webgpu'],
   });
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   const page = await context.newPage();
-  await page.goto(`chrome-extension://${new URL(sw.url()).host}/corpus/corpus.html?server=http://localhost:8787${process.env.MODEL ? `&model=${process.env.MODEL}` : ''}`);
+  await page.goto(`chrome-extension://${new URL(sw.url()).host}/corpus/corpus.html?server=${base}${process.env.MODEL ? `&model=${process.env.MODEL}` : ''}${process.env.SAFETY === '0' ? '&safety=0' : ''}`);
   await page.waitForFunction(() => window.__corpusDone, null, { timeout: 30 * 60_000, polling: 500 });
   const r = await page.evaluate(() => window.__corpusDone);
 
@@ -36,7 +40,7 @@ try {
   if (r.empty) {
     console.log('Corpus is empty. Add images under test/corpus/safe/<category>/ and test/corpus/flag/<category>/ (see test/corpus/README.md).');
   } else {
-    console.log(`\n${r.total} images (${r.failed} failed to load) in ${r.seconds.toFixed(1)}s on ${r.backend}\n`);
+    console.log(`\n${r.total} images (${r.failed} failed to load) in ${r.seconds.toFixed(1)}s on ${r.backend}, ${r.engine}\n`);
     const presets = Object.keys(r.rows[0].wrong);
     const pad = (s, n) => String(s).padEnd(n);
     console.log(pad('set', 34) + pad('n', 6) + pad('', 4) + presets.map((p) => pad(p, 16)).join(''));
@@ -51,7 +55,7 @@ try {
   code = 1;
 } finally {
   await context?.close();
-  server.kill();
+  server?.kill();
   rmSync(profile, { recursive: true, force: true });
 }
 process.exit(code);

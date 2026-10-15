@@ -1,0 +1,9 @@
+{
+  "model": "OpenAI CLIP RN50 image tower (MIT) + MLP head, tower fp16",
+  "input": "pixels float32 [B,3,224,224] RGB 0..1, whole image squashed",
+  "output": "probs float32 [B,1] P(block)",
+  "version": "safety-v1",
+  "url": "https://github.com/marstafk0/Toolize/releases/download/safety-model-v1/safety-v1.onnx",
+  "sha256": "b2e56ebf48e4902864af2532b5cfe06bc6117a665f27d373fc49b6578c66b3fa",
+  "size": 78732097
+}

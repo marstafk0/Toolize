@@ -52,6 +52,8 @@ try {
       `--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
       // Real-looking hostnames for the site-learning tests (localhost is never learned).
       '--host-resolver-rules=MAP *.test 127.0.0.1',
+      // WebGPU for the safety model, headless included (NO_GPU runs without it).
+      ...(process.env.NO_GPU ? [] : ['--enable-unsafe-webgpu']),
       ...(process.env.NO_GPU ? ['--disable-gpu'] : []),
     ],
   });

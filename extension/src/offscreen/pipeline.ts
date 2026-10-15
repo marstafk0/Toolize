@@ -1,6 +1,7 @@
 import { maxScores, type ClassifyResult, type Scores } from '../shared/policy';
 import type { ImageSource, PipelinePerf } from '../shared/messages';
 import type { ImageClassifier } from './classifier';
+import type { SafetyClassifier } from './safety-classifier';
 import { cropToImageData, decodeBlob, fetchImageBlob, tileRects } from './image-loader';
 import { loadVideoFrames } from './video-loader';
 
@@ -36,7 +37,8 @@ const MAX_CONCURRENT_DECODES = 4;
 export class ClassifyPipeline {
   private cache = new Map<string, ClassifyResult>();
   private inflight = new Map<string, Promise<ClassifyResult>>();
-  private batcher: Batcher;
+  private batcher: Batcher<Scores>;
+  private safetyBatcher: Batcher<number> | null = null;
   private jobSlots = new Semaphore(MAX_CONCURRENT_JOBS.cpu);
   private decodeSlots = new Semaphore(MAX_CONCURRENT_DECODES);
   classified = 0;
@@ -59,8 +61,16 @@ export class ClassifyPipeline {
   }
 
   constructor(private readonly classifier: ImageClassifier) {
-    this.batcher = new Batcher(classifier);
+    this.batcher = new Batcher((inputs) => classifier.classifyBatch(inputs));
   }
+
+  /** Called once the safety model has loaded; from then on every image gets its score. */
+  useSafety(safety: SafetyClassifier): void {
+    this.safety = safety;
+    this.safetyBatcher = new Batcher((inputs) => safety.classifyBatch(inputs));
+  }
+
+  private safety: SafetyClassifier | null = null;
 
   /** Called once the backend is known. */
   useGpu(gpu: boolean): void {
@@ -137,8 +147,19 @@ export class ClassifyPipeline {
         tileCount += rects.length;
       }
 
+      // The safety model scores each whole frame too, squashed (not cropped) to its input
+      // size so nothing at the edges is cut off. Its own batches, in parallel.
+      const safety = this.safety;
+      const safetyBatcher = this.safetyBatcher;
+      const safetyInputs = safety && safetyBatcher && !prior
+        ? frames.map((f) => cropToImageData(f, { x: 0, y: 0, w: f.width, h: f.height }, safety.inputSize))
+        : [];
       const cropMs = lap();
-      const scores = await this.batcher.submit(inputs);
+      const [scores, safetyScores] = await Promise.all([
+        this.batcher.submit(inputs),
+        // A failing safety model leaves the decision to NSFWJS rather than failing the job.
+        safetyInputs.length ? safetyBatcher!.submit(safetyInputs).catch(() => null) : Promise.resolve(null),
+      ]);
       const s = this.stage;
       s.jobs++;
       s.fetch += fetchMs;
@@ -148,11 +169,12 @@ export class ClassifyPipeline {
       const wholeCount = prior ? 0 : frames.length;
       let whole = prior ? prior.whole : maxScores(scores.slice(0, wholeCount));
       let tileMax = tileCount ? maxScores(scores.slice(wholeCount)) : undefined;
-      if (__DEV__) [whole, tileMax] = devOverride(req, whole, tileMax);
+      let safetyScore = prior ? prior.safety : safetyScores ? Math.max(...safetyScores) : undefined;
+      if (__DEV__) [whole, tileMax, safetyScore] = devOverride(req, whole, tileMax, safetyScore);
 
       this.classified++;
       this.totalMs += performance.now() - t0;
-      return { whole, tiles: tileMax, width: frames[0].width, height: frames[0].height };
+      return { whole, tiles: tileMax, safety: safetyScore, width: frames[0].width, height: frames[0].height };
     } finally {
       for (const f of frames) f.close();
     }
@@ -170,16 +192,16 @@ export class ClassifyPipeline {
  * inference; whatever arrived while a batch was on the GPU forms the next batch, so a
  * burst (page load, fast scroll) naturally shares round-trips with no fixed delay.
  */
-class Batcher {
-  private queue: { input: ImageData; resolve: (s: Scores) => void; reject: (e: unknown) => void }[] = [];
+class Batcher<R> {
+  private queue: { input: ImageData; resolve: (s: R) => void; reject: (e: unknown) => void }[] = [];
   private draining = false;
   readonly stats = { batches: 0, items: 0, ms: 0 };
 
-  constructor(private readonly classifier: ImageClassifier) {}
+  constructor(private readonly infer: (inputs: ImageData[]) => Promise<R[]>) {}
 
-  submit(inputs: ImageData[]): Promise<Scores[]> {
+  submit(inputs: ImageData[]): Promise<R[]> {
     const p = Promise.all(
-      inputs.map((input) => new Promise<Scores>((resolve, reject) => this.queue.push({ input, resolve, reject }))),
+      inputs.map((input) => new Promise<R>((resolve, reject) => this.queue.push({ input, resolve, reject }))),
     );
     if (!this.draining) {
       this.draining = true;
@@ -193,7 +215,7 @@ class Batcher {
       const items = this.queue.splice(0, MAX_BATCH);
       try {
         const t0 = performance.now();
-        const scores = await this.classifier.classifyBatch(items.map((i) => i.input));
+        const scores = await this.infer(items.map((i) => i.input));
         this.stats.batches++;
         this.stats.items += items.length;
         this.stats.ms += performance.now() - t0;
@@ -264,7 +286,7 @@ function devFailOnce(req: ClassifyJob): boolean {
  * Dev-build-only test hooks so the e2e suite can exercise the blocked / refine paths
  * with synthetic images. Compiled out of production builds (__DEV__ = false).
  */
-function devOverride(req: ClassifyJob, whole: Scores, tiles?: Scores): [Scores, Scores | undefined] {
+function devOverride(req: ClassifyJob, whole: Scores, tiles?: Scores, safety?: number): [Scores, Scores | undefined, number | undefined] {
   const { source } = req;
   // Video frames arrive as data URLs, so elements carry the tag as an attribute instead.
   const tag = req.testTag ?? ('url' in source ? source.url : 'videoUrl' in source ? source.videoUrl : '');
@@ -272,11 +294,13 @@ function devOverride(req: ClassifyJob, whole: Scores, tiles?: Scores): [Scores, 
   // Over the balanced threshold but not obviously explicit, for the first request only.
   if (tag.includes('__tz_test_mild_once') && !devMild.has(tag)) {
     devMild.add(tag);
-    return [{ ...neutral, neutral: 0.4, porn: 0.6 }, tiles && { ...neutral, neutral: 0.4, porn: 0.6 }];
+    return [{ ...neutral, neutral: 0.4, porn: 0.6 }, tiles && { ...neutral, neutral: 0.4, porn: 0.6 }, safety === undefined ? undefined : 0.6];
   }
-  if (tag.includes('__tz_test_flag')) return [{ ...neutral, neutral: 0.01, porn: 0.99 }, tiles && { ...neutral, porn: 0.99 }];
+  // Safety scores follow the same story, where the safety model ran. Borderline is the
+  // NSFWJS tile path, which only exists without it.
+  if (tag.includes('__tz_test_flag')) return [{ ...neutral, neutral: 0.01, porn: 0.99 }, tiles && { ...neutral, porn: 0.99 }, safety === undefined ? undefined : 0.99];
   if (tag.includes('__tz_test_borderline'))
-    return [{ ...neutral, neutral: 0.55, porn: 0.45 }, tiles && { ...neutral, neutral: 0.1, porn: 0.9 }];
-  if (tag.includes('__tz_test_clean')) return [neutral, tiles && neutral];
-  return [whole, tiles];
+    return [{ ...neutral, neutral: 0.55, porn: 0.45 }, tiles && { ...neutral, neutral: 0.1, porn: 0.9 }, undefined];
+  if (tag.includes('__tz_test_clean')) return [neutral, tiles && neutral, safety === undefined ? undefined : 0.01];
+  return [whole, tiles, safety];
 }

@@ -62,6 +62,8 @@ export interface EngineInfo {
   /** Where the time goes: average ms per job for each stage, and average batch size. */
   perf?: PipelinePerf;
   error?: string;
+  /** Safety model: 'webgpu' when running, else why not (or 'loading'). */
+  safety?: string;
 }
 
 export interface PipelinePerf {

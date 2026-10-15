@@ -1,6 +1,6 @@
 # Regression corpus
 
-Put your labelled images here. The whole folder is gitignored except this file, so no images are ever committed.
+Put your labelled images here, or fill it with `node scripts/corpus-fetch.mjs` (Wikimedia Commons; review with `scripts/corpus-sheet.mjs`, exclude wrong labels in `exclude.txt`). The whole folder is gitignored except this file, so no images are ever committed.
 
 ```
 safe/<category>/*.jpg|png|webp|…   must NOT be blurred   (beach, medical, art, lego, sports, skin-tone-heavy-modest, …)

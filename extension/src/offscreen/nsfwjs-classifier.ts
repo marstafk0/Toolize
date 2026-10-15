@@ -9,14 +9,24 @@ import type { ImageClassifier } from './classifier';
 // NSFWJS output order (see nsfwjs/dist/esm/nsfw_classes.js).
 const OUTPUT_ORDER = ['drawing', 'hentai', 'neutral', 'porn', 'sexy'] as const;
 
+/** The NSFWJS models. Only mobilenet_v2 ships; inception_v3 is extracted into dev builds
+ * so the corpus page can compare (`?model=`). mobilenet_v2_mid (a graph model) missed
+ * most swimwear in the corpus and isn't supported. */
+export const NSFWJS_MODELS = {
+  mobilenet_v2: { inputSize: 224 },
+  // 8x the size; fewer false positives on hard negatives but more misses (corpus, 2026-10).
+  inception_v3: { inputSize: 299 },
+} as const;
+export type NsfwjsModel = keyof typeof NSFWJS_MODELS;
+
 /**
  * NSFWJS MobileNetV2 (224px, softmax over 5 classes). The model is shipped inside the
  * extension (extracted from the nsfwjs package at build time) — no network, ever.
  * Preprocessing mirrors NSFWJS.infer: RGB / 255, no mean subtraction.
  */
 export class NsfwjsClassifier implements ImageClassifier {
-  readonly modelName = 'nsfwjs-mobilenet_v2';
-  readonly inputSize = 224;
+  readonly modelName: string;
+  readonly inputSize: number;
   backend = 'none';
   /** Why preferred backends were skipped (shown in the popup when degraded). */
   readonly warnings: string[] = [];
@@ -26,8 +36,11 @@ export class NsfwjsClassifier implements ImageClassifier {
   constructor(
     private readonly modelUrl: string,
     wasmDir: string,
+    variant: NsfwjsModel = 'mobilenet_v2',
   ) {
     setWasmPaths(wasmDir);
+    this.modelName = `nsfwjs-${variant}`;
+    this.inputSize = NSFWJS_MODELS[variant].inputSize;
   }
 
   async load(): Promise<void> {

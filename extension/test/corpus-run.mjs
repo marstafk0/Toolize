@@ -4,6 +4,7 @@
 //
 //   npm run corpus
 //   HEADED=1 npm run corpus    (also shows misclassified thumbnails)
+//   MODEL=inception_v3 npm run corpus   (compare another NSFWJS model)
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,7 +28,7 @@ try {
   });
   const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   const page = await context.newPage();
-  await page.goto(`chrome-extension://${new URL(sw.url()).host}/corpus/corpus.html?server=http://localhost:8787`);
+  await page.goto(`chrome-extension://${new URL(sw.url()).host}/corpus/corpus.html?server=http://localhost:8787${process.env.MODEL ? `&model=${process.env.MODEL}` : ''}`);
   await page.waitForFunction(() => window.__corpusDone, null, { timeout: 30 * 60_000, polling: 500 });
   const r = await page.evaluate(() => window.__corpusDone);
 

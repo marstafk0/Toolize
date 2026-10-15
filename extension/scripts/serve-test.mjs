@@ -120,8 +120,11 @@ function handler(req, res) {
 
   if (path === '/corpus/index.json') {
     const toUrl = (f) => `/corpus/files/${relative(corpusDir, f).split(sep).map(encodeURIComponent).join('/')}`;
+    // exclude.txt: reviewed-out images (wrong label), one corpus-relative path per line.
+    const excludeFile = join(corpusDir, 'exclude.txt');
+    const excluded = new Set(existsSync(excludeFile) ? readFileSync(excludeFile, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : []);
     const entries = ['safe', 'flag'].flatMap((label) =>
-      listImages(join(corpusDir, label)).map((f) => ({
+      listImages(join(corpusDir, label)).filter((f) => !excluded.has(relative(corpusDir, f).split(sep).join('/'))).map((f) => ({
         url: toUrl(f),
         label,
         category: relative(join(corpusDir, label), dirname(f)).split(sep)[0] || '(none)',

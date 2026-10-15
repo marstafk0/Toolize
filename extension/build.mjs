@@ -42,21 +42,22 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
 // ---- model: nsfwjs ships its weights as base64 inside UMD JS modules (and decodes
 // them with Node's Buffer). Unpack once into a normal model.json + .bin so TF.js loads
 // it straight from the extension package — faster startup, no 3.5 MB of base64 to parse.
+// Dev builds also carry the bigger Inception V3, for the corpus page to compare.
 {
   const require = createRequire(import.meta.url);
-  const pkg = join(root, 'node_modules/nsfwjs/dist/models/mobilenet_v2');
-  const modelJson = require(join(pkg, 'model.min.js'));
-  const [group] = modelJson.weightsManifest;
-  if (modelJson.weightsManifest.length !== 1 || group.paths.length !== 1) throw new Error('unexpected nsfwjs model layout');
-  const weights = Buffer.from(require(join(pkg, `${group.paths[0]}.min.js`)), 'base64');
-  const binName = `${group.paths[0]}.bin`;
-  const dest = join(out, 'models/mobilenet_v2');
-  mkdirSync(dest, { recursive: true });
-  writeFileSync(join(dest, binName), weights);
-  writeFileSync(
-    join(dest, 'model.json'),
-    JSON.stringify({ ...modelJson, weightsManifest: [{ ...group, paths: [binName] }] }),
-  );
+  for (const name of dev ? ['mobilenet_v2', 'inception_v3'] : ['mobilenet_v2']) {
+    const pkg = join(root, 'node_modules/nsfwjs/dist/models', name);
+    const modelJson = require(join(pkg, 'model.min.js'));
+    if (modelJson.weightsManifest.length !== 1) throw new Error('unexpected nsfwjs model layout');
+    const [group] = modelJson.weightsManifest;
+    const dest = join(out, 'models', name);
+    mkdirSync(dest, { recursive: true });
+    const paths = group.paths.map((p) => {
+      writeFileSync(join(dest, `${p}.bin`), Buffer.from(require(join(pkg, `${p}.min.js`)), 'base64'));
+      return `${p}.bin`;
+    });
+    writeFileSync(join(dest, 'model.json'), JSON.stringify({ ...modelJson, weightsManifest: [{ ...group, paths }] }));
+  }
 }
 
 // ---- declarativeNetRequest ruleset for known adult sites. Generated from the same

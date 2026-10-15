@@ -1,4 +1,4 @@
-import { NsfwjsClassifier } from '../offscreen/nsfwjs-classifier';
+import { NSFWJS_MODELS, NsfwjsClassifier, type NsfwjsModel } from '../offscreen/nsfwjs-classifier';
 import { ClassifyPipeline } from '../offscreen/pipeline';
 import { hashString } from '../shared/hash';
 import { decide, PRESETS, type ClassifyResult, type Preset } from '../shared/policy';
@@ -24,7 +24,10 @@ interface Scored extends Entry {
   error?: string;
 }
 
-const server = new URLSearchParams(location.search).get('server') ?? 'http://localhost:8787';
+const params = new URLSearchParams(location.search);
+const server = params.get('server') ?? 'http://localhost:8787';
+/** ?model=mobilenet_v2_mid|inception_v3 compares another NSFWJS model (dev builds carry all three). */
+const variant = (params.get('model') ?? 'mobilenet_v2') as NsfwjsModel;
 const $ = (id: string) => document.getElementById(id)!;
 
 /** Every corpus result carries tiles, so decide() never returns 'refine' here. */
@@ -46,9 +49,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!(variant in NSFWJS_MODELS)) throw new Error(`unknown model ${variant}`);
   const classifier = new NsfwjsClassifier(
-    chrome.runtime.getURL('models/mobilenet_v2/model.json'),
+    chrome.runtime.getURL(`models/${variant}/model.json`),
     chrome.runtime.getURL('wasm/'),
+    variant,
   );
   await classifier.load();
   const pipeline = new ClassifyPipeline(classifier);

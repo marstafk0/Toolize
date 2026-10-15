@@ -407,7 +407,18 @@ Toolize/                      # repo root (the product is "Toolize")
 ## Testing
 
 - **Corpus regression:** labelled images in `extension/test/corpus/{safe,flag}/<category>/`
-  (gitignored). `npm run corpus` reports false-positive/false-negative rates per preset
+  (gitignored). `node scripts/corpus-fetch.mjs` fills it from Wikimedia Commons: ~580
+  hard negatives (raw meat, skin-tone food, medical skin, hands/feet, gym, faces, pink
+  animals, textures, home listings, beaches) and ~90 swimwear/lingerie photos. Nothing
+  explicit is fetched on purpose — the porn side can't be measured here, so never loosen
+  porn/hentai thresholds or tiles on corpus numbers alone. Commons search is unfiltered
+  (it once returned an explicit photo): review each batch with
+  `scripts/corpus-sheet.mjs <dir> out.png --new` and list wrong ones in
+  `test/corpus/exclude.txt`. `MODEL=inception_v3 npm run corpus` compares the bigger
+  NSFWJS model. Baseline (2026-10, balanced): MobileNetV2 10.5% FP / 12.5% FN;
+  Inception V3 7.9% / 18.2%; MobileNetV2 Mid 6% FP but missed 83% of swimwear. Most FPs
+  are skin close-ups the model scores as porn (rashes, arms, hands) — a model limit,
+  thresholds barely move it. `npm run corpus` reports false-positive/false-negative rates per preset
   and saves per-image scores. Run it on every model or threshold change and track the
   rates over time. Safe categories that matter: beaches, medical, art, LEGO minifigs,
   skin-tone-heavy but modest.

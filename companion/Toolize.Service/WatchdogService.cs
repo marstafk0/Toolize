@@ -19,7 +19,8 @@ namespace Toolize.Service;
 public sealed class WatchdogService(
     StateStore store,
     ExtensionTracker extension,
-    ILogger<WatchdogService> log)
+    ILogger<WatchdogService> log,
+    bool dev = false)
 {
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(10);
     /// <summary>How long a managed browser may run unprotected before we act.</summary>
@@ -73,6 +74,13 @@ public sealed class WatchdogService(
         {
             _unprotectedSince = null;
             Status = "off";
+            return;
+        }
+        if (dev)
+        {
+            _unprotectedSince = null;
+            Status = "dev mode (no-op)";
+            log.LogDebug("watchdog skipped in dev mode");
             return;
         }
 

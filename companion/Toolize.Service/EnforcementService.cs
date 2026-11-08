@@ -15,7 +15,7 @@ namespace Toolize.Service;
 /// This needs admin rights, which the service has as SYSTEM. Unelevated (a dev run) it
 /// reports what it would do and changes nothing.
 /// </summary>
-public sealed class EnforcementService(StateStore store, ILogger<EnforcementService> log)
+public sealed class EnforcementService(StateStore store, ILogger<EnforcementService> log, bool dev = false)
 {
     private static readonly TimeSpan Reconcile = TimeSpan.FromSeconds(30);
     private readonly string _extensionId = AppInfo.StoreExtensionId;
@@ -54,6 +54,19 @@ public sealed class EnforcementService(StateStore store, ILogger<EnforcementServ
     {
         if (!OperatingSystem.IsWindows()) return;
         var settings = store.Settings;
+        if (dev)
+        {
+            Applied = false;
+            Summary = settings.Enforce
+                ? $"dev mode — would enforce for {PolicyPlan.Browsers.Length} browsers (HKLM untouched)"
+                : "not enforced (dev mode)";
+            if (Summary != _lastSummary)
+            {
+                log.LogInformation("{Summary}", Summary);
+                _lastSummary = Summary;
+            }
+            return;
+        }
         var applied = 0;
         var removed = 0;
 

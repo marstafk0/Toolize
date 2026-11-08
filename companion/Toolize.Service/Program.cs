@@ -8,8 +8,8 @@ using Toolize.Service;
 // Toolize service. Runs as a Windows service in production; `--console` runs it in the
 // foreground on a separate pipe and state directory so a dev build never fights the
 // installed one.
-var dev = args.Contains("--dev");
-var console = args.Contains("--console") || dev;
+var dev = args.Contains("--dev") || args.Contains("--console");
+var console = dev;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddWindowsService(o => o.ServiceName = "Toolize");
@@ -18,8 +18,15 @@ builder.Logging.AddEventLog(o => o.SourceName = "Toolize");
 builder.Services.AddSingleton(new StateStore(StateStore.DefaultDirectory(dev)));
 builder.Services.AddSingleton<LockService>();
 builder.Services.AddSingleton<UnlockService>();
-builder.Services.AddSingleton<EnforcementService>();
-builder.Services.AddSingleton<WatchdogService>();
+builder.Services.AddSingleton(sp => new EnforcementService(
+    sp.GetRequiredService<StateStore>(),
+    sp.GetRequiredService<ILogger<EnforcementService>>(),
+    dev));
+builder.Services.AddSingleton(sp => new WatchdogService(
+    sp.GetRequiredService<StateStore>(),
+    sp.GetRequiredService<ExtensionTracker>(),
+    sp.GetRequiredService<ILogger<WatchdogService>>(),
+    dev));
 builder.Services.AddSingleton<ExtensionTracker>();
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddSingleton<DoctorService>();

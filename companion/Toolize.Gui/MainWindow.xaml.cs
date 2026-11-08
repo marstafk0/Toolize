@@ -16,6 +16,8 @@ public partial class MainWindow : Window
     private readonly PipeClient _client;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private StatusReport? _status;
+    private bool _wasKeyPresent;
+    private string? _updateError;
     /// <summary>Guards the moment we write the service's values into the controls.</summary>
     private bool _syncing;
 
@@ -78,6 +80,9 @@ public partial class MainWindow : Window
         _syncing = true;
         try
         {
+            var keyRemovedNow = _wasKeyPresent && !s.Lock.KeyPresent;
+            _wasKeyPresent = s.Lock.KeyPresent;
+
             VersionText.Text = $"v{s.Version}";
             ChannelText.Text = $"{s.Channel} channel";
 
@@ -94,9 +99,12 @@ public partial class MainWindow : Window
             AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
             foreach (var (key, box) in _feedBoxes) box.IsChecked = s.Settings.Feeds?.GetValueOrDefault(key) == true;
             WordFilterBox.IsChecked = s.Settings.WordFilter;
-            // Don't overwrite what the user is typing on every refresh.
-            if (!WordsBox.IsKeyboardFocusWithin) WordsBox.Text = string.Join(Environment.NewLine, s.Settings.BlockedWords ?? []);
-            if (!ChannelsBox.IsKeyboardFocusWithin) ChannelsBox.Text = string.Join(Environment.NewLine, s.Settings.TrustedChannels ?? []);
+            // Don't overwrite what the user is typing on every refresh — unless the key
+            // was just removed, which reverts half-applied edits immediately.
+            if (keyRemovedNow || !WordsBox.IsKeyboardFocusWithin)
+                WordsBox.Text = string.Join(Environment.NewLine, s.Settings.BlockedWords ?? []);
+            if (keyRemovedNow || !ChannelsBox.IsKeyboardFocusWithin)
+                ChannelsBox.Text = string.Join(Environment.NewLine, s.Settings.TrustedChannels ?? []);
             PresetHint.Text = PresetHints[s.Settings.Preset];
             ModeHint.Text = s.Settings.Mode == RevealMode.Safe
                 ? "Images stay hidden until they've been checked. Nothing flashes on screen."
@@ -107,18 +115,45 @@ public partial class MainWindow : Window
                 : "Not connected. Open your browser; if this persists, run `toolize doctor`.";
             ExtensionText.Foreground = (Brush)FindResource(s.Extension.Connected ? "Ink" : "Muted");
 
-            LockText.Text = s.Lock.Enrolled
-                ? s.Lock.KeyPresent
-                    ? $"Unlocked — {s.Lock.KeyName} is plugged in. Changes that weaken protection are allowed."
-                    : "Locked. Plug in your key to change anything that weakens protection."
-                : "No key enrolled, so every setting can be changed freely.";
-            LockText.Foreground = (Brush)FindResource(s.Lock.Enrolled && !s.Lock.KeyPresent ? "Accent" : "Ink");
+            if (s.Extension.Connected && s.Extension.ConnectedBrowsers.Count > 0)
+            {
+                var synced = s.Extension.ConnectedBrowsers.All(b => b.LastSeen >= s.SettingsChangedAt);
+                ExtensionSyncText.Text = $"Browser: {(synced ? "synced" : "syncing…")} (rev {s.SettingsRevision})";
+                ExtensionSyncText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                ExtensionSyncText.Visibility = Visibility.Collapsed;
+            }
+
+            if (!s.Lock.Enrolled)
+            {
+                LockText.Text = "No key enrolled, so every setting can be changed freely.";
+                LockText.Foreground = (Brush)FindResource("Ink");
+            }
+            else if (s.Lock.KeyPresent)
+            {
+                LockText.Text = $"Unlocked — {s.Lock.KeyName} is plugged in. Changes that weaken protection are allowed.";
+                LockText.Foreground = (Brush)FindResource("Ink");
+            }
+            else if (!string.IsNullOrEmpty(s.Lock.KeyName))
+            {
+                LockText.Text = $"Locked — {s.Lock.KeyName}";
+                LockText.Foreground = (Brush)FindResource("Bad");
+            }
+            else
+            {
+                LockText.Text = "Locked. Plug in your key to change anything that weakens protection.";
+                LockText.Foreground = (Brush)FindResource("Accent");
+            }
+
             EnrollButton.Content = s.Keys.Count == 0 ? "Set up a USB key" : "Add another key";
-            RevokeButton.Visibility = s.Keys.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             LockHint.Text = s.Keys.Count == 0
                 ? "A dedicated USB key gates every change that weakens protection. Removing it re-locks immediately."
-                : string.Join(", ", s.Keys.Select(k => k.Name)) +
-                  (s.HasRecoveryCode ? " · recovery code issued" : " · NO recovery code — losing every key means reinstalling");
+                : s.HasRecoveryCode
+                    ? "Recovery code issued and unused."
+                    : "NO recovery code — losing every key means reinstalling.";
+            RenderKeys(s.Keys);
 
             EnforceBox.IsChecked = s.Settings.Enforce;
             BlockIncognitoBox.IsChecked = s.Settings.BlockIncognito;
@@ -145,6 +180,8 @@ public partial class MainWindow : Window
                     : $"Up to date (v{s.Version}).";
                 UpdateButton.Content = "Check for updates";
             }
+            UpdateErrorText.Text = _updateError ?? "";
+            UpdateErrorText.Visibility = string.IsNullOrEmpty(_updateError) ? Visibility.Collapsed : Visibility.Visible;
 
             NotesText.Text = s.Notes.Count == 0
                 ? "Nothing yet."
@@ -156,6 +193,49 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RenderKeys(IReadOnlyList<EnrolledKey> keys)
+    {
+        KeysPanel.Children.Clear();
+        foreach (var k in keys)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
+            var removeBtn = new Button
+            {
+                Content = "Remove",
+                Tag = k,
+                Background = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A)),
+                Padding = new Thickness(10, 4, 10, 4),
+            };
+            removeBtn.Click += OnRevokeClicked;
+            DockPanel.SetDock(removeBtn, Dock.Right);
+            row.Children.Add(removeBtn);
+
+            var seenText = k.LastSeen is { } seen
+                ? $"last seen {seen.LocalDateTime:yyyy-MM-dd HH:mm}"
+                : $"enrolled {k.EnrolledAt.LocalDateTime:yyyy-MM-dd}";
+            row.Children.Add(new TextBlock
+            {
+                Text = $"{k.Name} ({seenText})",
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            KeysPanel.Children.Add(row);
+        }
+    }
+
+    private void ShowBanner(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            RefusalBanner.Visibility = Visibility.Collapsed;
+            RefusalText.Text = "";
+            return;
+        }
+        RefusalText.Text = message;
+        RefusalBanner.Visibility = Visibility.Visible;
+    }
+
+    private void OnDismissBanner(object sender, RoutedEventArgs e) => ShowBanner(null);
+
     /// <summary>Notes are stored with a full ISO timestamp; the UI only needs the day and time.</summary>
     private static string Shorten(string note) =>
         DateTimeOffset.TryParse(note.Split(' ')[0], out var when)
@@ -165,6 +245,7 @@ public partial class MainWindow : Window
     private async void OnSettingChanged(object sender, RoutedEventArgs e)
     {
         if (_syncing || _status is null) return;
+        ShowBanner(null);
 
         var next = _status.Settings with
         {
@@ -195,13 +276,12 @@ public partial class MainWindow : Window
             var response = await _client.SendAsync(Verbs.SetSettings, new SetSettingsArgs(next));
             if (!response.Ok)
             {
-                MessageBox.Show(this, response.Error, response.Code == "locked" ? "Locked" : "Toolize",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowBanner(response.Error);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Toolize", MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowBanner(ex.Message);
         }
         finally
         {
@@ -211,27 +291,32 @@ public partial class MainWindow : Window
 
     private async void OnEnrollClicked(object sender, RoutedEventArgs e)
     {
+        ShowBanner(null);
         _timer.Stop(); // the wizard drives its own polling
-        new EnrollWindow(_client) { Owner = this }.ShowDialog();
+        new EnrollWindow(_client, hasExistingKeys: (_status?.Keys.Count ?? 0) > 0) { Owner = this }.ShowDialog();
         await RefreshAsync();
         _timer.Start();
     }
 
     private async void OnRevokeClicked(object sender, RoutedEventArgs e)
     {
-        var key = _status?.Keys.FirstOrDefault();
+        ShowBanner(null);
+        var key = (sender as FrameworkElement)?.Tag as EnrolledKey ?? _status?.Keys.FirstOrDefault();
         if (key is null) return;
         if (MessageBox.Show(this,
                 $"Remove \"{key.Name}\"? If it is your only key, nothing will be gated any more.",
                 "Remove key", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
 
         var response = await _client.SendAsync(Verbs.RevokeKey, new RevokeKeyArgs(key.Id));
-        if (!response.Ok) MessageBox.Show(this, response.Error, "Locked", MessageBoxButton.OK, MessageBoxImage.Warning);
+        if (!response.Ok) ShowBanner(response.Error);
         await RefreshAsync();
     }
 
     private async void OnUpdateClicked(object sender, RoutedEventArgs e)
     {
+        ShowBanner(null);
+        _updateError = null;
+        UpdateErrorText.Visibility = Visibility.Collapsed;
         UpdateButton.IsEnabled = false;
         try
         {
@@ -239,21 +324,25 @@ public partial class MainWindow : Window
             {
                 UpdateText.Text = "Downloading and installing… the app will restart.";
                 var response = await _client.SendAsync(Verbs.ApplyUpdate);
-                if (!response.Ok) UpdateText.Text = $"Update failed: {response.Error}";
+                if (!response.Ok)
+                {
+                    _updateError = $"Update failed: {response.Error}";
+                    if (response.Code == "locked") ShowBanner(response.Error);
+                }
             }
             else
             {
                 UpdateText.Text = "Checking…";
                 await _client.SendAsync(Verbs.CheckUpdate);
-                await RefreshAsync();
             }
         }
         catch (Exception ex)
         {
-            UpdateText.Text = $"Update failed: {ex.Message}";
+            _updateError = $"Update failed: {ex.Message}";
         }
         finally
         {
+            await RefreshAsync();
             UpdateButton.IsEnabled = true;
         }
     }

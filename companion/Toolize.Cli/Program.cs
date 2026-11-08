@@ -11,6 +11,11 @@ using Toolize.Core;
 
 var dev = args.Contains("--dev");
 var rest = args.Where(a => a != "--dev").ToArray();
+if (rest.Any(a => a is "--help" or "-h" or "help"))
+{
+    PrintUsage();
+    return 0;
+}
 var client = new PipeClient(Protocol.PipeName(dev));
 var verb = rest.FirstOrDefault() ?? "status";
 
@@ -171,11 +176,12 @@ try
         }
 
         case "notes":
+        case "logs":
             foreach (var note in (await Ask(Verbs.Status)).DataAs<StatusReport>()?.Notes ?? []) Console.WriteLine(note);
             break;
 
         default:
-            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, words, trust, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, uninstall-check");
+            Console.Error.WriteLine($"unknown command '{verb}'. Try: status, settings, set, words, trust, channel, drives, enroll-key, keys, revoke-key, recover, check-update, update, doctor, notes, logs, uninstall-check");
             return 2;
     }
     return 0;
@@ -190,6 +196,31 @@ catch (Exception ex)
     Console.Error.WriteLine(ex.Message);
     return 1;
 }
+
+static void PrintUsage() => Console.WriteLine("""
+    usage: toolize [command] [--dev]
+
+    commands:
+      status                        show protection, lock, extension and update status (default)
+      settings                      print the current settings JSON
+      set <setting> <value>         change a setting (strengthening is always allowed; weakening needs your key)
+      words [add|remove <word>]     list or change blocked words
+      trust [add|remove <channel>]  list or change trusted YouTube channels
+      channel [stable|dev]          show or switch the release channel
+      drives                        list removable USB drives
+      enroll-key <drive> [name]     enroll a USB key
+      keys                          list enrolled keys
+      revoke-key <id>               remove an enrolled key (needs a key plugged in)
+      recover <code>                clear all keys using the one-time recovery code
+      check-update                  check for a newer release
+      update                        download and install an available update
+      doctor                        run diagnostic checks
+      notes (or logs)               show recent audit notes
+
+    options:
+      --dev                         connect to the dev service pipe (toolize-dev)
+      -h, --help                    show this help message
+    """);
 
 async Task<Response> Ask(string v, object? a = null)
 {
@@ -207,7 +238,14 @@ async Task ShowStatusAsync()
                       $"{(s.Settings.BlockAdultSites ? ", adult sites blocked" : "")}");
     var feeds = (s.Settings.Feeds ?? []).Where(f => f.Value).Select(f => f.Key).ToList();
     Console.WriteLine($"  feeds        {(feeds.Count == 0 ? "none hidden" : $"hidden: {string.Join(", ", feeds)}")}");
-    Console.WriteLine($"  lock         {(s.Lock.Enrolled ? s.Lock.KeyPresent ? "unlocked (key present)" : "LOCKED" : "no key enrolled")}");
+    var lockText = !s.Lock.Enrolled
+        ? "no key enrolled"
+        : s.Lock.KeyPresent
+            ? $"unlocked ({s.Lock.KeyName} present)"
+            : !string.IsNullOrEmpty(s.Lock.KeyName)
+                ? $"LOCKED — {s.Lock.KeyName}"
+                : "LOCKED";
+    Console.WriteLine($"  lock         {lockText}");
     Console.WriteLine($"  extension    {(s.Extension.Connected ? $"connected ({s.Extension.Version}{(s.Extension.Browsers.Count > 0 ? $" in {string.Join(", ", s.Extension.Browsers)}" : "")}), {s.Extension.Blocked} blocked / {s.Extension.Checked} checked" : "not connected")}");
     Console.WriteLine($"  enforcement  {(s.Enforcement.Applied ? s.Enforcement.Summary : "off — the extension can still be removed in the browser")}");
     if (s.Enforcement.Applied) Console.WriteLine($"  watchdog     {s.Enforcement.Watchdog}");
@@ -265,7 +303,12 @@ async Task SetAsync(string[] pair)
     Print(response.Data);
 }
 
-static bool ParseBool(string v) => v is "on" or "true" or "yes" or "1";
+static bool ParseBool(string v) => v.ToLowerInvariant() switch
+{
+    "on" or "true" or "yes" or "1" => true,
+    "off" or "false" or "no" or "0" => false,
+    _ => throw new ArgumentException($"invalid boolean value '{v}' (expected on|off|true|false|yes|no|1|0)"),
+};
 
 static void Print(JsonElement? data) =>
     Console.WriteLine(data is null ? "(no data)" : JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));

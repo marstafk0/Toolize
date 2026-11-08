@@ -68,6 +68,14 @@
                     <TextBlock x:Name="VersionText" Text="" Margin="10,6,0,0" Foreground="{StaticResource Muted}" />
                 </StackPanel>
                 <TextBlock x:Name="StatusText" Margin="0,6,0,0" Text="Connecting to the Toolize service…" />
+                <Border x:Name="RefusalBanner" Visibility="Collapsed" Background="#FDF2F0" BorderBrush="{StaticResource Bad}"
+                        BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,10,0,0">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Dismiss" Padding="8,3" Margin="8,0,0,0"
+                                Background="#8A8A8A" Click="OnDismissBanner" />
+                        <TextBlock x:Name="RefusalText" Foreground="{StaticResource Bad}" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
             </StackPanel>
         </Border>
 
@@ -76,7 +84,7 @@
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="PROTECTION" />
-                        <CheckBox x:Name="EnabledBox" Content="Blur explicit images and video" Click="OnSettingChanged" />
+                        <CheckBox x:Name="EnabledBox" Content="Protection on (blur, adult-site blocking, word filter, feed hiding)" Click="OnSettingChanged" />
 
                         <TextBlock Margin="0,14,0,6" FontWeight="SemiBold" Text="Sensitivity" />
                         <StackPanel Orientation="Horizontal">
@@ -137,6 +145,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="BROWSER EXTENSION" />
                         <TextBlock x:Name="ExtensionText" Text="Checking…" />
+                        <TextBlock Style="{StaticResource Hint}" x:Name="ExtensionSyncText" Visibility="Collapsed" />
                     </StackPanel>
                 </Border>
 
@@ -146,10 +155,9 @@
                         <TextBlock x:Name="LockText" Text="No key enrolled." />
                         <TextBlock Style="{StaticResource Hint}" x:Name="LockHint"
                                    Text="A dedicated USB key gates every change that weakens protection. Removing it re-locks immediately." />
+                        <StackPanel x:Name="KeysPanel" Margin="0,8,0,0" />
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button x:Name="EnrollButton" Content="Set up a USB key" Click="OnEnrollClicked" />
-                            <Button x:Name="RevokeButton" Margin="8,0,0,0" Background="#8A8A8A" Content="Remove key"
-                                    Visibility="Collapsed" Click="OnRevokeClicked" />
                         </StackPanel>
                     </StackPanel>
                 </Border>
@@ -178,6 +186,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource CardTitle}" Text="UPDATES" />
                         <TextBlock x:Name="UpdateText" Text="Checking for updates…" />
+                        <TextBlock x:Name="UpdateErrorText" Foreground="{StaticResource Bad}" Margin="0,6,0,0" Visibility="Collapsed" />
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button x:Name="UpdateButton" Content="Check for updates" Click="OnUpdateClicked" />
                             <TextBlock x:Name="ChannelText" Margin="12,8,0,0" Foreground="{StaticResource Muted}" />

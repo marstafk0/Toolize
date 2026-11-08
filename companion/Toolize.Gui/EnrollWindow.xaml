@@ -67,10 +67,12 @@
         <!-- Step 3: recovery code -->
         <StackPanel x:Name="StepRecovery" Grid.Row="1" Visibility="Collapsed">
             <TextBlock Text="Write this recovery code down before you close this window. It is shown once and never again." />
-            <Border Background="White" BorderBrush="#E4E1DB" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,14">
+            <Border Background="White" BorderBrush="#E4E1DB" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,14,0,8">
                 <TextBox x:Name="RecoveryCode" FontFamily="Consolas" FontSize="18" IsReadOnly="True"
                          BorderThickness="0" Background="Transparent" TextAlignment="Center" />
             </Border>
+            <Button x:Name="CopyCodeButton" Content="Copy recovery code" HorizontalAlignment="Center"
+                    Margin="0,0,0,12" Padding="12,6" Click="OnCopyCode" />
             <TextBlock Foreground="{StaticResource Muted}"
                        Text="It is the only way back in if every key is lost, and it works exactly once. Give it to your accountability partner, sealed — if you keep it yourself, it is simply a way around the lock." />
         </StackPanel>

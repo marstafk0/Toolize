@@ -267,4 +267,90 @@ public sealed class ExtensionTrackerAndRevisionTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task Doctor_reports_per_browser_settings_sync_and_warns_on_dev_pipe()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "toolize-doctor-test-" + Guid.NewGuid().ToString("n")[..8]);
+        try
+        {
+            var store = new StateStore(tempDir);
+            var locks = new Toolize.Service.LockService();
+            var tracker = new Toolize.Service.ExtensionTracker();
+            var enforcement = new Toolize.Service.EnforcementService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.EnforcementService>.Instance, dev: true);
+            var storeId = Toolize.Service.AppInfo.StoreExtensionId;
+
+            // Both browsers check in after SettingsChangedAt -> Settings sync is Ok.
+            tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", 0, 10, "chrome", storeId));
+            tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", 0, 10, "edge", storeId));
+
+            var doctorSynced = new Toolize.Service.DoctorService(store, tracker, locks, enforcement, dev: false, devPipeExists: () => true);
+            var checksSynced = await doctorSynced.RunAsync(CancellationToken.None);
+
+            var syncCheck = Assert.Single(checksSynced.Where(c => c.Name == "Settings sync"));
+            Assert.True(syncCheck.Ok);
+            Assert.Contains("chrome, edge", syncCheck.Detail);
+
+            var devWarn = Assert.Single(checksSynced.Where(c => c.Name == "Dev instance"));
+            Assert.True(devWarn.Ok); // warn only — never fails the doctor check
+            Assert.Contains("warning:", devWarn.Detail);
+
+            // Bump settings so only chrome checks in afterwards -> edge is reported as behind.
+            await Task.Delay(15);
+            tracker.SettingsChanged();
+            await Task.Delay(15);
+            tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", 0, 12, "chrome", storeId));
+
+            var checksBehind = await doctorSynced.RunAsync(CancellationToken.None);
+            var behindCheck = Assert.Single(checksBehind.Where(c => c.Name == "Settings sync"));
+            Assert.False(behindCheck.Ok);
+            Assert.Contains("edge", behindCheck.Detail);
+            Assert.DoesNotContain("chrome", behindCheck.Detail);
+
+            // When the service itself is a dev instance, it does not warn about the dev pipe.
+            var doctorDev = new Toolize.Service.DoctorService(store, tracker, locks, enforcement, dev: true, devPipeExists: () => true);
+            var checksDev = await doctorDev.RunAsync(CancellationToken.None);
+            Assert.DoesNotContain(checksDev, c => c.Name == "Dev instance");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RequestHandler_gates_issue_recovery_on_unlock_and_allows_set_channel_while_locked()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "toolize-handler-test-" + Guid.NewGuid().ToString("n")[..8]);
+        try
+        {
+            var store = new StateStore(tempDir);
+            store.AddKey(new EnrolledKey { Id = "k1", Name = "key", SecretHash = "hash", Counter = 1 });
+            var locks = new Toolize.Service.LockService();
+            var tracker = new Toolize.Service.ExtensionTracker();
+            var unlock = new Toolize.Service.UnlockService(store, locks, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UnlockService>.Instance, tracker);
+            var enforcement = new Toolize.Service.EnforcementService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.EnforcementService>.Instance, dev: true);
+            var watchdog = new Toolize.Service.WatchdogService(store, tracker, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.WatchdogService>.Instance, dev: true);
+            var updates = new Toolize.Service.UpdateService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UpdateService>.Instance);
+            var doctor = new Toolize.Service.DoctorService(store, tracker, locks, enforcement, dev: true);
+            var handler = new Toolize.Service.RequestHandler(store, locks, unlock, enforcement, watchdog, updates, tracker, doctor, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.RequestHandler>.Instance);
+
+            // Key is enrolled and absent (locked): issuing a recovery code is refused.
+            var issueLocked = await handler.HandleAsync(new Request(Verbs.IssueRecovery), CancellationToken.None);
+            Assert.False(issueLocked.Ok);
+            Assert.Equal("locked", issueLocked.Code);
+
+            // Switching channel is allowed even while locked.
+            var setChan = await handler.HandleAsync(new Request(Verbs.SetChannel)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new SetChannelArgs("dev"), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.True(setChan.Ok);
+            Assert.Equal("dev", store.Channel);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

@@ -16,11 +16,11 @@ public sealed class UnlockTests : IDisposable
 
     private FlashDriveProvider Provider => new(() => _drives);
 
-    private string AddDrive(string name)
+    private string AddDrive(string name, string? volumeSerial = "00001111", string? hardwareSerial = null)
     {
         var path = Path.Combine(_root, name) + Path.DirectorySeparatorChar;
         Directory.CreateDirectory(path);
-        _drives.Add(new DriveOption(path, name, 4_000_000_000, false));
+        _drives.Add(new DriveOption(path, name, 4_000_000_000, false, volumeSerial, hardwareSerial));
         return path;
     }
 
@@ -178,6 +178,67 @@ public sealed class UnlockTests : IDisposable
             Assert.Equal(UnlockStatus.Verified, Provider.Check([key]).Status);
         }
         Assert.Equal(6, key.Counter);
+    }
+
+    [Fact]
+    public void Enrolling_binds_volume_and_hardware_serials_and_verifies_on_match()
+    {
+        var drive = AddDrive("stick", volumeSerial: "1A2B3C4D", hardwareSerial: "USB-SN-001");
+        var key = Provider.Enroll(drive, "Partner's key");
+
+        Assert.Equal("1A2B3C4D", key.VolumeSerial);
+        Assert.Equal("USB-SN-001", key.HardwareSerial);
+        Assert.Equal(UnlockStatus.Verified, Provider.Check([key]).Status);
+    }
+
+    [Fact]
+    public void A_key_copied_to_a_drive_with_a_different_volume_or_hardware_serial_is_detected_as_a_clone()
+    {
+        var original = AddDrive("original", volumeSerial: "1A2B3C4D", hardwareSerial: "USB-SN-001");
+        var key = Provider.Enroll(original, "key");
+
+        var wrongVolume = AddDrive("other-vol", volumeSerial: "DEADBEEF", hardwareSerial: "USB-SN-001");
+        Directory.CreateDirectory(Path.GetDirectoryName(FlashDriveProvider.KeyPath(wrongVolume))!);
+        File.Copy(FlashDriveProvider.KeyPath(original), FlashDriveProvider.KeyPath(wrongVolume));
+        _drives.RemoveAll(d => d.Root == original);
+
+        var checkVol = Provider.Check([key]);
+        Assert.Equal(UnlockStatus.Clone, checkVol.Status);
+        Assert.Equal($"the key on {wrongVolume.TrimEnd(Path.DirectorySeparatorChar)} is on a different drive than the one enrolled", checkVol.Detail);
+
+        _drives.Clear();
+        var wrongHw = AddDrive("other-hw", volumeSerial: "1A2B3C4D", hardwareSerial: "USB-SN-999");
+        Directory.CreateDirectory(Path.GetDirectoryName(FlashDriveProvider.KeyPath(wrongHw))!);
+        File.Copy(FlashDriveProvider.KeyPath(original), FlashDriveProvider.KeyPath(wrongHw));
+
+        var checkHw = Provider.Check([key]);
+        Assert.Equal(UnlockStatus.Clone, checkHw.Status);
+        Assert.Equal($"the key on {wrongHw.TrimEnd(Path.DirectorySeparatorChar)} is on a different drive than the one enrolled", checkHw.Detail);
+    }
+
+    [Fact]
+    public void A_legacy_key_with_label_and_bytes_is_accepted_and_upgraded_on_rotation()
+    {
+        var drive = AddDrive("stick", volumeSerial: "CAFEBABE", hardwareSerial: "USB-SN-777");
+        var enrolled = Provider.Enroll(drive, "legacy");
+        var legacy = enrolled with { VolumeSerial = "stick|4000000000", HardwareSerial = null };
+
+        // Legacy key is accepted even though VolumeSerial is in the old Label|Bytes format.
+        Assert.Equal(UnlockStatus.Verified, Provider.Check([legacy]).Status);
+
+        // Next rotation upgrades the record to the real volume and hardware serials.
+        var rotated = Provider.Rotate(legacy);
+        Assert.Equal("CAFEBABE", rotated.VolumeSerial);
+        Assert.Equal("USB-SN-777", rotated.HardwareSerial);
+        Assert.Equal(UnlockStatus.Verified, Provider.Check([rotated]).Status);
+
+        // Once upgraded, moving the file to another stick is caught immediately.
+        var other = AddDrive("other", volumeSerial: "00001111", hardwareSerial: "USB-SN-888");
+        Directory.CreateDirectory(Path.GetDirectoryName(FlashDriveProvider.KeyPath(other))!);
+        File.Copy(FlashDriveProvider.KeyPath(drive), FlashDriveProvider.KeyPath(other));
+        _drives.RemoveAll(d => d.Root == drive);
+
+        Assert.Equal(UnlockStatus.Clone, Provider.Check([rotated]).Status);
     }
 
     [Fact]

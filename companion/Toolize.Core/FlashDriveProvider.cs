@@ -1,9 +1,17 @@
+using System.Management;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace Toolize.Core;
 
 /// <summary>A place a key could live. Real drives at runtime; temp folders in tests.</summary>
-public sealed record DriveOption(string Root, string Label, long Bytes, bool HasKey)
+public sealed record DriveOption(
+    string Root,
+    string Label,
+    long Bytes,
+    bool HasKey,
+    string? VolumeSerial = null,
+    string? HardwareSerial = null)
 {
     /// <summary>How the drive is named to the user and on the command line ("D:").</summary>
     public string Letter => Root.TrimEnd(Path.DirectorySeparatorChar);
@@ -40,10 +48,31 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
     {
         if (enrolled.Count == 0) return new UnlockCheck(UnlockStatus.Absent);
 
-        foreach (var (root, file) in ReadCandidates())
+        foreach (var (drive, file) in ReadCandidates())
         {
+            var root = drive.Root;
             var key = enrolled.FirstOrDefault(k => k.Id == file.Id);
             if (key is null) continue;
+
+            // Keys enrolled before serial binding stored "{Label}|{Bytes}" in VolumeSerial.
+            // Accept those as-is and upgrade them on the next rotation so existing users
+            // aren't locked out; for real serials, a mismatch means the keyfile was copied
+            // onto another stick.
+            if (!IsLegacyVolumeSerial(key.VolumeSerial))
+            {
+                var actualVolume = drive.VolumeSerial ?? ReadVolumeSerial(root);
+                if (actualVolume is null || !string.Equals(actualVolume, key.VolumeSerial, StringComparison.OrdinalIgnoreCase))
+                    return new UnlockCheck(UnlockStatus.Clone, key,
+                        $"the key on {drive.Letter} is on a different drive than the one enrolled");
+            }
+
+            if (!string.IsNullOrEmpty(key.HardwareSerial))
+            {
+                var actualHardware = drive.HardwareSerial ?? ReadHardwareSerial(root);
+                if (actualHardware is null || !string.Equals(actualHardware, key.HardwareSerial, StringComparison.OrdinalIgnoreCase))
+                    return new UnlockCheck(UnlockStatus.Clone, key,
+                        $"the key on {drive.Letter} is on a different drive than the one enrolled");
+            }
 
             // Counter first. A copy taken before the last rotation carries both a stale
             // counter AND a stale secret, so checking the secret first would report it as
@@ -76,7 +105,8 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
             Tier = Tier,
             SecretHash = Secrets.Hash(secret),
             Counter = 1,
-            VolumeSerial = $"{drive.Label}|{drive.Bytes}",
+            VolumeSerial = drive.VolumeSerial ?? ReadVolumeSerial(drive.Root),
+            HardwareSerial = drive.HardwareSerial ?? ReadHardwareSerial(drive.Root),
         };
         Write(drive.Root, new KeyFile { Id = key.Id, Secret = secret, Counter = key.Counter });
         return key;
@@ -85,18 +115,31 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
     public EnrolledKey Rotate(EnrolledKey key, Action<EnrolledKey>? persist = null)
     {
         var found = ReadCandidates().FirstOrDefault(c => c.File.Id == key.Id);
-        if (found.Root is null) return key; // drive went away mid-check; try again next time
+        if (found.Drive is null) return key; // drive went away mid-check; try again next time
+
+        var root = found.Drive.Root;
+        var upgradedVolume = IsLegacyVolumeSerial(key.VolumeSerial)
+            ? (found.Drive.VolumeSerial ?? ReadVolumeSerial(root) ?? key.VolumeSerial)
+            : key.VolumeSerial;
+        var upgradedHardware = string.IsNullOrEmpty(key.HardwareSerial)
+            ? (found.Drive.HardwareSerial ?? ReadHardwareSerial(root))
+            : key.HardwareSerial;
 
         var secret = Secrets.NewSecret();
         var nextHash = Secrets.Hash(secret);
-        var pending = key with { PendingHash = nextHash };
+        var pending = key with
+        {
+            PendingHash = nextHash,
+            VolumeSerial = upgradedVolume,
+            HardwareSerial = upgradedHardware,
+        };
         // Two-phase rotation: (a) record PendingHash (counter unchanged) before touching
         // the stick; (b) write the stick atomically with Counter + 1; (c) commit
         // SecretHash = PendingHash, PendingHash = null, Counter + 1. Crash before (b) and
         // the old secret still verifies; crash after (b) and PendingHash with Counter + 1
         // verifies. Either way the key is never bricked.
         persist?.Invoke(pending);
-        Write(found.Root, new KeyFile { Id = key.Id, Secret = secret, Counter = key.Counter + 1 });
+        Write(root, new KeyFile { Id = key.Id, Secret = secret, Counter = key.Counter + 1 });
         var committed = pending with
         {
             SecretHash = nextHash,
@@ -107,6 +150,81 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
         persist?.Invoke(committed);
         return committed;
     }
+
+    public static bool IsLegacyVolumeSerial(string? serial) =>
+        string.IsNullOrEmpty(serial) || serial.Contains('|');
+
+    /// <summary>Reads the filesystem volume serial number (hex) via GetVolumeInformationW.</summary>
+    public static string? ReadVolumeSerial(string root)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            var rootPath = Path.GetPathRoot(root);
+            if (string.IsNullOrEmpty(rootPath)) rootPath = root;
+            if (!rootPath.EndsWith(Path.DirectorySeparatorChar))
+                rootPath += Path.DirectorySeparatorChar;
+            return GetVolumeInformationW(rootPath, null, 0, out var serial, out _, out _, null, 0) && serial != 0
+                ? serial.ToString("X8")
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Reads the physical USB disk's hardware serial via WMI (Win32_DiskDrive.SerialNumber
+    /// joined through Win32_LogicalDiskToPartition), best effort.
+    /// </summary>
+    public static string? ReadHardwareSerial(string root)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            var rootPath = Path.GetPathRoot(root) ?? root;
+            var letter = rootPath.TrimEnd(Path.DirectorySeparatorChar);
+            if (letter.Length != 2 || letter[1] != ':') return null;
+
+            using var partitions = new ManagementObjectSearcher(
+                $"ASSOCIATORS OF {{Win32_LogicalDisk.DeviceID='{letter}'}} WHERE AssocClass = Win32_LogicalDiskToPartition");
+            foreach (var partition in partitions.Get().OfType<ManagementObject>())
+            {
+                using (partition)
+                {
+                    var partId = partition["DeviceID"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(partId)) continue;
+                    using var drives = new ManagementObjectSearcher(
+                        $"ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='{partId}'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition");
+                    foreach (var disk in drives.Get().OfType<ManagementObject>())
+                    {
+                        using (disk)
+                        {
+                            var serial = disk["SerialNumber"]?.ToString()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(serial)) return serial;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // WMI unavailable or virtual/temp folder: best effort only.
+        }
+        return null;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool GetVolumeInformationW(
+        string lpRootPathName,
+        char[]? lpVolumeNameBuffer,
+        int nVolumeNameSize,
+        out uint lpVolumeSerialNumber,
+        out uint lpMaximumComponentLength,
+        out uint lpFileSystemFlags,
+        char[]? lpFileSystemNameBuffer,
+        int nFileSystemNameSize);
 
     private DriveOption? Find(string target)
     {
@@ -120,11 +238,17 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
     [
         .. DriveInfo.GetDrives()
             .Where(d => d is { DriveType: DriveType.Removable, IsReady: true })
-            .Select(d => new DriveOption(
-                d.RootDirectory.FullName,
-                string.IsNullOrWhiteSpace(d.VolumeLabel) ? "USB drive" : d.VolumeLabel,
-                SizeOf(d),
-                File.Exists(KeyPath(d.RootDirectory.FullName)))),
+            .Select(d =>
+            {
+                var root = d.RootDirectory.FullName;
+                return new DriveOption(
+                    root,
+                    string.IsNullOrWhiteSpace(d.VolumeLabel) ? "USB drive" : d.VolumeLabel,
+                    SizeOf(d),
+                    File.Exists(KeyPath(root)),
+                    ReadVolumeSerial(root),
+                    ReadHardwareSerial(root));
+            }),
     ];
 
     private static long SizeOf(DriveInfo d)
@@ -141,7 +265,7 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
 
     public static string KeyPath(string root) => Path.Combine(root, KeyDirectory, KeyFileName);
 
-    private IEnumerable<(string Root, KeyFile File)> ReadCandidates()
+    private IEnumerable<(DriveOption Drive, KeyFile File)> ReadCandidates()
     {
         foreach (var drive in SafeDrives())
         {
@@ -155,7 +279,7 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
             {
                 // Unreadable drive or malformed file: treat as no key, never as a pass.
             }
-            if (file is not null) yield return (drive.Root, file);
+            if (file is not null) yield return (drive, file);
         }
     }
 

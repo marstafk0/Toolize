@@ -296,20 +296,50 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
 /// Reports what is and isn't in place. In phase 3 this is mostly informational; from
 /// phase 5 it becomes the checklist that says whether protection is actually enforced.
 /// </summary>
-public sealed class DoctorService(StateStore store, ExtensionTracker extension, LockService locks, EnforcementService enforcement)
+public sealed class DoctorService(
+    StateStore store,
+    ExtensionTracker extension,
+    LockService locks,
+    EnforcementService enforcement,
+    bool dev = false,
+    Func<bool>? devPipeExists = null)
 {
+    private readonly Func<bool> _devPipeExists = devPipeExists ?? (() =>
+        OperatingSystem.IsWindows() && File.Exists($@"\\.\pipe\{Protocol.PipeName(dev: true)}"));
+
     public Task<IReadOnlyList<Check>> RunAsync(CancellationToken ct)
     {
+        var extState = extension.State;
         var checks = new List<Check>
         {
             new("Service", true, $"running, version {AppInfo.Version}"),
             new("State directory", Directory.Exists(store.Directory), store.Directory),
-            new("Extension", extension.State.Connected,
-                extension.State.Connected
-                    ? $"connected, version {extension.State.Version}"
+            new("Extension", extState.Connected,
+                extState.Connected
+                    ? $"connected, version {extState.Version}"
                     : "not connected — install it from the browser, or check the native messaging host",
                 Fix: "Open the browser and confirm Toolize is enabled"),
         };
+
+        if (extState.ConnectedBrowsers.Count > 0)
+        {
+            var changedAt = extension.SettingsChangedAt;
+            var rev = extension.Revision;
+            var stale = extState.ConnectedBrowsers.Where(b => b.LastSeen < changedAt).Select(b => b.Name).ToList();
+            var synced = stale.Count == 0;
+            checks.Add(new Check("Settings sync", synced,
+                synced
+                    ? $"all connected browsers ({string.Join(", ", extState.ConnectedBrowsers.Select(b => b.Name))}) on revision {rev}"
+                    : $"waiting for {string.Join(", ", stale)} to pick up revision {rev}",
+                Fix: synced ? null : "Wait a few seconds for the next heartbeat or reload the extension"));
+        }
+
+        if (!dev && _devPipeExists())
+        {
+            checks.Add(new Check("Dev instance", true,
+                $"warning: a dev instance is also running on \\\\.\\pipe\\{Protocol.PipeName(dev: true)} alongside the installed service",
+                Fix: "Stop the dev service (`--console` / `--dev`) if you aren't actively testing"));
+        }
 
         foreach (var (name, key) in new[]
                  {

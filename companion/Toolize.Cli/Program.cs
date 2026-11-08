@@ -170,7 +170,8 @@ try
             foreach (var c in checks)
             {
                 Console.WriteLine($"{(c.Ok ? "ok  " : "FAIL")}  {c.Name,-24} {c.Detail}");
-                if (!c.Ok && c.Fix is not null) Console.WriteLine($"        fix: {c.Fix}");
+                if ((!c.Ok || c.Detail.StartsWith("warning:", StringComparison.OrdinalIgnoreCase)) && c.Fix is not null)
+                    Console.WriteLine($"        fix: {c.Fix}");
             }
             return checks.All(c => c.Ok) ? 0 : 1;
         }

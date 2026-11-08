@@ -65,7 +65,9 @@ export function isExplicit(r: ClassifyResult, t: Thresholds): boolean {
   // Learning blocks a whole site, so it wants a confident call, and one that leans
   // explicit rather than swimwear (NSFWJS tells those apart; the safety model doesn't).
   if (r.safety !== undefined) {
-    return isExplicitBesideSafety(r.whole, t) ||
+    // Hentai beside safety blurs at 0.5, but blocking a whole site wants more than
+    // borderline drawn art (anime fan sites): a confident score only.
+    return r.whole.hentai > Math.max(t.hentaiBesideSafety, LEARN_HENTAI) ||
       (r.safety > Math.max(t.safety, LEARN_SAFETY) && r.whole.porn + r.whole.hentai > r.whole.sexy);
   }
   const over = (s: Scores) => s.porn > t.porn || s.hentai > t.hentai;
@@ -95,6 +97,8 @@ export const OBVIOUS_MARGIN = 0.2;
 const OBVIOUS_SAFETY_MARGIN = 0.4;
 /** Safety score an image needs to count toward learning a whole site as adult. */
 const LEARN_SAFETY = 0.85;
+/** NSFWJS hentai an image needs, beside the safety model, to count toward learning a site. */
+const LEARN_HENTAI = 0.85;
 
 export function isObviouslyExplicit(r: ClassifyResult, t: Thresholds): boolean {
   if (r.safety !== undefined) return r.safety > Math.min(0.97, t.safety + OBVIOUS_SAFETY_MARGIN);

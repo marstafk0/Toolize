@@ -402,12 +402,19 @@ export class VideoWatcher {
     if (Number.isFinite(d)) t.lastDuration = d;
   }
 
-  /** A paused frame doesn't change, so one classification is its whole verdict. */
+  /**
+   * A paused frame doesn't change, so it is classified once. The same rule as for
+   * playing video: before a video is shown anything doubtful keeps it hidden; once it
+   * has been shown clean, a single still over the threshold (a seek landing on a
+   * misjudged frame) is not enough — it takes two flagged stills, or an obvious one.
+   */
   private recordStill(video: HTMLVideoElement, t: Track, at: number, frame: Frame, obvious: boolean): void {
     t.stillAt = at;
-    t.recent = [frame];
+    t.recent.push(frame);
+    if (t.recent.length > WINDOW) t.recent.shift();
     const shown = t.verdict === 'clean';
-    const blur = obvious || frame === 'flagged' || (frame === 'doubtful' && !shown);
+    const flagged = t.recent.filter((f) => f === 'flagged').length;
+    const blur = obvious || (shown ? flagged >= FLAGGED_TO_BLUR : frame !== 'clean');
     t.cleanStreak = blur ? 0 : CLEAN_STREAK;
     this.setVerdict(video, t, blur ? 'blocked' : 'clean', false); // already paused
   }

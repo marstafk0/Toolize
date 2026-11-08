@@ -14,6 +14,8 @@ It makes two kinds of network request of its own, neither carrying anything abou
 
 The extension downloads each image a second time from inside its own sandbox so it can read the pixels. That request goes to the site that already served the image. Nothing is sent anywhere else.
 
+The popup's **Why was this blurred?** list shows the scores behind recent decisions on the current tab, so a wrong blur can be reported with numbers. It keeps scores and sizes only — no addresses, titles or pictures — and is cleared when the tab closes.
+
 ## Honest limits
 
 Anyone with admin rights on a machine can defeat software running on it: they can stop the service, delete the browser policy, or uninstall the lot. Enforcement (below) only holds against a *standard* user account, with someone else keeping the admin password. On an account that is itself an administrator, it is friction and tamper-evidence, nothing more. The goal is to turn "3 clicks" into "deliberate technical effort", not to be unbeatable. The physical key only helps if someone else keeps it, such as an accountability partner, or if it lives somewhere deliberately inconvenient. The software can't enforce that.

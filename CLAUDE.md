@@ -271,7 +271,10 @@ Be precise about this, because "uncopyable USB" is a real distinction:
 
 - **Content never leaves the machine.** Image/video analysis, unlock verification, and
   settings are 100% local. No URLs, no screenshots, no browsing data, no telemetry.
-  Logs record *that* something was blocked, never what was viewed.
+  Logs record *that* something was blocked, never what was viewed. The popup's "Why was
+  this blurred?" list (`shared/verdicts.ts`, per-tab ring of 60 in session storage) holds
+  scores, thresholds and sizes only — never a URL, title, channel or pixel — so false
+  positives can be reported and the video rules tuned from numbers.
 - **The exceptions are the update check and the blocklist refresh.** The update check
   sends a version and a channel name to the release host and nothing else. The
   extension downloads the public OISD NSFW list once a day (a plain GET, no

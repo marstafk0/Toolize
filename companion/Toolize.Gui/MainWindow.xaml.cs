@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private StatusReport? _status;
     private bool _wasKeyPresent;
     private string? _updateError;
+    private string? _channelResult;
     /// <summary>Guards the moment we write the service's values into the controls.</summary>
     private bool _syncing;
 
@@ -30,11 +31,14 @@ public partial class MainWindow : Window
 
     /// <summary>One checkbox per feed toggle, keyed by its setting ("youtube.home").</summary>
     private readonly Dictionary<string, CheckBox> _feedBoxes = new();
+    /// <summary>Base labels for controls that may gain a lock badge when weakening.</summary>
+    private readonly Dictionary<ContentControl, string> _baseLabels = new();
 
     public MainWindow()
     {
         InitializeComponent();
         BuildFeeds();
+        RememberBaseLabels();
         var dev = Environment.GetCommandLineArgs().Contains("--dev");
         _client = new PipeClient(Protocol.PipeName(dev));
         _timer.Tick += async (_, _) => await RefreshAsync();
@@ -57,6 +61,21 @@ public partial class MainWindow : Window
                 _feedBoxes[toggle.Key] = box;
                 FeedsPanel.Children.Add(box);
             }
+        }
+    }
+
+    private void RememberBaseLabels()
+    {
+        ContentControl[] fixedControls =
+        [
+            EnabledBox, PresetStrict, PresetBalanced, PresetRelaxed,
+            ModeSafe, ModeFast, BlockSitesBox, AllowLiveBox, WordFilterBox,
+            EnforceBox, BlockIncognitoBox, BlockOtherExtBox, BlockDevToolsBox,
+            WatchdogOff, WatchdogWarn, WatchdogClose,
+        ];
+        foreach (var c in fixedControls.Concat(_feedBoxes.Values))
+        {
+            if (c.Content is string text) _baseLabels[c] = text;
         }
     }
 
@@ -84,7 +103,7 @@ public partial class MainWindow : Window
             _wasKeyPresent = s.Lock.KeyPresent;
 
             VersionText.Text = $"v{s.Version}";
-            ChannelText.Text = $"{s.Channel} channel";
+            SelectChannelItem(s.Channel);
 
             StatusText.Text = s.Settings.Enabled ? "Protection is on." : "Protection is OFF.";
             StatusText.Foreground = (Brush)FindResource(s.Settings.Enabled ? "Ink" : "Bad");
@@ -153,6 +172,12 @@ public partial class MainWindow : Window
                 : s.HasRecoveryCode
                     ? "Recovery code issued and unused."
                     : "NO recovery code — losing every key means reinstalling.";
+            UseRecoveryButton.Visibility = s.Lock.Enrolled && !s.Lock.KeyPresent && s.HasRecoveryCode
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            IssueRecoveryButton.Visibility = s.Lock.KeyPresent && !s.HasRecoveryCode
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             RenderKeys(s.Keys);
 
             EnforceBox.IsChecked = s.Settings.Enforce;
@@ -168,6 +193,8 @@ public partial class MainWindow : Window
                 : "Off. The extension can be disabled or removed in the browser like any other.";
             WatchdogHint.Text = s.Settings.Enforce ? s.Enforcement.Watchdog : "";
 
+            RenderLockBadges(s);
+
             if (s.Update is { Available: true } update)
             {
                 UpdateText.Text = $"Version {update.Version} is available.{(update.Notes is null ? "" : $"\n{update.Notes}")}";
@@ -182,6 +209,8 @@ public partial class MainWindow : Window
             }
             UpdateErrorText.Text = _updateError ?? "";
             UpdateErrorText.Visibility = string.IsNullOrEmpty(_updateError) ? Visibility.Collapsed : Visibility.Visible;
+            ChannelResultText.Text = _channelResult ?? "";
+            ChannelResultText.Visibility = string.IsNullOrEmpty(_channelResult) ? Visibility.Collapsed : Visibility.Visible;
 
             NotesText.Text = s.Notes.Count == 0
                 ? "Nothing yet."
@@ -190,6 +219,78 @@ public partial class MainWindow : Window
         finally
         {
             _syncing = false;
+        }
+    }
+
+    /// <summary>
+    /// Marks controls whose next click would weaken protection when locked. Computed
+    /// directly from <see cref="SettingsPolicy.IsWeakening"/> by simulating each single
+    /// change against the current settings — never by duplicating the policy rules here.
+    /// </summary>
+    private void RenderLockBadges(StatusReport s)
+    {
+        var locked = s.Lock.Enrolled && !s.Lock.KeyPresent;
+        var cur = s.Settings;
+
+        bool NeedsKey(Settings simulated) => locked && SettingsPolicy.IsWeakening(cur, simulated);
+
+        SetBadge(EnabledBox, NeedsKey(cur with { Enabled = !cur.Enabled }));
+        SetBadge(PresetStrict, NeedsKey(cur with { Preset = Preset.Strict }));
+        SetBadge(PresetBalanced, NeedsKey(cur with { Preset = Preset.Balanced }));
+        SetBadge(PresetRelaxed, NeedsKey(cur with { Preset = Preset.Relaxed }));
+        SetBadge(ModeSafe, NeedsKey(cur with { Mode = RevealMode.Safe }));
+        SetBadge(ModeFast, NeedsKey(cur with { Mode = RevealMode.Fast }));
+        SetBadge(BlockSitesBox, NeedsKey(cur with { BlockAdultSites = !cur.BlockAdultSites }));
+        SetBadge(AllowLiveBox, NeedsKey(cur with { AllowLiveStreams = !cur.AllowLiveStreams }));
+        SetBadge(WordFilterBox, NeedsKey(cur with { WordFilter = !cur.WordFilter }));
+
+        foreach (var (key, box) in _feedBoxes)
+        {
+            var feeds = new Dictionary<string, bool>(cur.Feeds ?? []);
+            var wasOn = feeds.GetValueOrDefault(key);
+            feeds[key] = !wasOn;
+            SetBadge(box, NeedsKey(cur with { Feeds = feeds }));
+        }
+
+        SetBadge(EnforceBox, NeedsKey(cur with { Enforce = !cur.Enforce }));
+        SetBadge(BlockIncognitoBox, NeedsKey(cur with { BlockIncognito = !cur.BlockIncognito }));
+        SetBadge(BlockOtherExtBox, NeedsKey(cur with { BlockOtherExtensions = !cur.BlockOtherExtensions }));
+        SetBadge(BlockDevToolsBox, NeedsKey(cur with { BlockDevTools = !cur.BlockDevTools }));
+        SetBadge(WatchdogOff, NeedsKey(cur with { Watchdog = Watchdog.Off }));
+        SetBadge(WatchdogWarn, NeedsKey(cur with { Watchdog = Watchdog.Warn }));
+        SetBadge(WatchdogClose, NeedsKey(cur with { Watchdog = Watchdog.Close }));
+    }
+
+    private void SetBadge(ContentControl control, bool needsKey)
+    {
+        if (!_baseLabels.TryGetValue(control, out var label)) return;
+        if (!needsKey)
+        {
+            control.Content = label;
+            return;
+        }
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(new TextBlock
+        {
+            Text = " 🔒",
+            FontSize = 11,
+            Foreground = (Brush)FindResource("Muted"),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Needs your unlock key",
+        });
+        control.Content = panel;
+    }
+
+    private void SelectChannelItem(string channel)
+    {
+        foreach (var item in ChannelCombo.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag as string, channel, StringComparison.OrdinalIgnoreCase))
+            {
+                ChannelCombo.SelectedItem = item;
+                return;
+            }
         }
     }
 
@@ -310,6 +411,285 @@ public partial class MainWindow : Window
         var response = await _client.SendAsync(Verbs.RevokeKey, new RevokeKeyArgs(key.Id));
         if (!response.Ok) ShowBanner(response.Error);
         await RefreshAsync();
+    }
+
+    private async void OnUseRecoveryClicked(object sender, RoutedEventArgs e)
+    {
+        ShowBanner(null);
+        var dialog = BuildRecoverDialog(out var codeBox);
+        if (dialog.ShowDialog() != true) return;
+        var code = codeBox.Text.Trim();
+        if (string.IsNullOrEmpty(code)) return;
+
+        try
+        {
+            var response = await _client.SendAsync(Verbs.Recover, new RecoverArgs(code));
+            if (response.Ok)
+            {
+                MessageBox.Show(this,
+                    "Recovery code accepted. All enrolled keys have been cleared, and protection stays on. You can now enroll a new USB key.",
+                    "Recovered", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                ShowBanner(response.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowBanner(ex.Message);
+        }
+        finally
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async void OnIssueRecoveryClicked(object sender, RoutedEventArgs e)
+    {
+        ShowBanner(null);
+        try
+        {
+            var response = await _client.SendAsync(Verbs.IssueRecovery);
+            if (!response.Ok)
+            {
+                ShowBanner(response.Error);
+                return;
+            }
+            var code = response.Data?.TryGetProperty("code", out var prop) == true ? prop.GetString() : null;
+            if (!string.IsNullOrEmpty(code))
+            {
+                BuildShowRecoveryDialog(code).ShowDialog();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowBanner(ex.Message);
+        }
+        finally
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private Window BuildRecoverDialog(out TextBox codeBox)
+    {
+        var win = new Window
+        {
+            Title = "Use recovery code",
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            Background = Background,
+            FontFamily = FontFamily,
+            FontSize = FontSize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Owner = this,
+        };
+        var panel = new StackPanel { Margin = new Thickness(20) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Enter your one-time recovery code. This clears all enrolled USB keys while keeping protection on, so you can enroll a replacement key.",
+            TextWrapping = TextWrapping.Wrap,
+        });
+        var box = new TextBox
+        {
+            Margin = new Thickness(0, 12, 0, 14),
+            Padding = new Thickness(8),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 15,
+        };
+        codeBox = box;
+        panel.Children.Add(box);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var cancel = new Button { Content = "Cancel", Background = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A)), Margin = new Thickness(0, 0, 8, 0) };
+        cancel.Click += (_, _) => { win.DialogResult = false; win.Close(); };
+        var submit = new Button { Content = "Clear keys", IsDefault = true };
+        submit.Click += (_, _) => { win.DialogResult = true; win.Close(); };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(submit);
+        panel.Children.Add(buttons);
+        win.Content = panel;
+        win.Loaded += (_, _) => box.Focus();
+        return win;
+    }
+
+    private Window BuildShowRecoveryDialog(string code)
+    {
+        var win = new Window
+        {
+            Title = "Your recovery code",
+            Width = 440,
+            SizeToContent = SizeToContent.Height,
+            Background = Background,
+            FontFamily = FontFamily,
+            FontSize = FontSize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Owner = this,
+        };
+        var panel = new StackPanel { Margin = new Thickness(22) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Write this recovery code down before you close this window. It is shown once and never again.",
+            TextWrapping = TextWrapping.Wrap,
+        });
+        var border = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = (Brush)FindResource("Line"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(16),
+            Margin = new Thickness(0, 14, 0, 8),
+            Child = new TextBox
+            {
+                Text = code,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 18,
+                IsReadOnly = true,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                TextAlignment = TextAlignment.Center,
+            },
+        };
+        panel.Children.Add(border);
+
+        var copyBtn = new Button
+        {
+            Content = "Copy recovery code",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12),
+            Padding = new Thickness(12, 6, 12, 6),
+        };
+        copyBtn.Click += (_, _) =>
+        {
+            Clipboard.SetText(code);
+            copyBtn.Content = "Copied";
+        };
+        panel.Children.Add(copyBtn);
+
+        panel.Children.Add(new TextBlock
+        {
+            Foreground = (Brush)FindResource("Muted"),
+            TextWrapping = TextWrapping.Wrap,
+            Text = "It is the only way back in if every key is lost, and it works exactly once. Give it to your accountability partner, sealed — if you keep it yourself, it is simply a way around the lock.",
+        });
+
+        var doneBtn = new Button
+        {
+            Content = "I've written it down",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0),
+        };
+        doneBtn.Click += (_, _) => win.Close();
+        panel.Children.Add(doneBtn);
+        win.Content = panel;
+        return win;
+    }
+
+    private async void OnDoctorClicked(object sender, RoutedEventArgs e)
+    {
+        ShowBanner(null);
+        DoctorButton.IsEnabled = false;
+        try
+        {
+            var response = await _client.SendAsync(Verbs.Doctor);
+            if (!response.Ok)
+            {
+                ShowBanner(response.Error);
+                return;
+            }
+            var checks = response.DataAs<List<Check>>() ?? [];
+            RenderDoctorChecks(checks);
+        }
+        catch (Exception ex)
+        {
+            ShowBanner(ex.Message);
+        }
+        finally
+        {
+            DoctorButton.IsEnabled = true;
+        }
+    }
+
+    private void RenderDoctorChecks(IReadOnlyList<Check> checks)
+    {
+        DoctorPanel.Children.Clear();
+        foreach (var c in checks)
+        {
+            var isWarn = c.Ok && c.Detail.StartsWith("warning:", StringComparison.OrdinalIgnoreCase);
+            var badgeColor = !c.Ok ? (Brush)FindResource("Bad")
+                : isWarn ? (Brush)FindResource("Muted")
+                : (Brush)FindResource("Accent");
+            var badgeText = !c.Ok ? "FAIL" : isWarn ? "WARN" : "OK";
+
+            var item = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+            var line = new StackPanel { Orientation = Orientation.Horizontal };
+            line.Children.Add(new TextBlock
+            {
+                Text = badgeText,
+                FontFamily = new FontFamily("Consolas"),
+                FontWeight = FontWeights.SemiBold,
+                Foreground = badgeColor,
+                Width = 42,
+            });
+            line.Children.Add(new TextBlock
+            {
+                Text = $"{c.Name}: ",
+                FontWeight = FontWeights.SemiBold,
+            });
+            line.Children.Add(new TextBlock
+            {
+                Text = c.Detail,
+                Foreground = (Brush)FindResource("Ink"),
+            });
+            item.Children.Add(line);
+
+            if ((!c.Ok || isWarn) && !string.IsNullOrWhiteSpace(c.Fix))
+            {
+                item.Children.Add(new TextBlock
+                {
+                    Text = $"Fix: {c.Fix}",
+                    Foreground = (Brush)FindResource("Muted"),
+                    FontSize = 12,
+                    Margin = new Thickness(42, 2, 0, 0),
+                });
+            }
+            DoctorPanel.Children.Add(item);
+        }
+        DoctorPanel.Visibility = Visibility.Visible;
+    }
+
+    private async void OnChannelChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || _status is null) return;
+        if ((ChannelCombo.SelectedItem as ComboBoxItem)?.Tag is not string channel) return;
+        if (string.Equals(channel, _status.Channel, StringComparison.OrdinalIgnoreCase)) return;
+
+        ShowBanner(null);
+        try
+        {
+            var response = await _client.SendAsync(Verbs.SetChannel, new SetChannelArgs(channel));
+            if (!response.Ok)
+            {
+                ShowBanner(response.Error);
+                return;
+            }
+            var info = response.DataAs<UpdateInfo>();
+            _channelResult = info?.Available == true
+                ? $"Switched to {channel} channel — version {info.Version} is available."
+                : $"Switched to {channel} channel — up to date.";
+        }
+        catch (Exception ex)
+        {
+            ShowBanner(ex.Message);
+        }
+        finally
+        {
+            await RefreshAsync();
+        }
     }
 
     private async void OnUpdateClicked(object sender, RoutedEventArgs e)

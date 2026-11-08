@@ -40,7 +40,7 @@ public sealed class RequestHandler(
                 Verbs.EnrollKey => EnrollKey(request),
                 Verbs.RevokeKey => RevokeKey(request),
                 Verbs.Recover => Recover(request),
-                Verbs.IssueRecovery => Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() }),
+                Verbs.IssueRecovery => IssueRecovery(request),
                 Verbs.ExtensionHello => ExtensionHello(request),
                 Verbs.ExtensionHeartbeat => ExtensionHeartbeat(request),
                 Verbs.WatchSettings => await WatchSettingsAsync(request, ct),
@@ -182,6 +182,13 @@ public sealed class RequestHandler(
         return unlock.Recover(code)
             ? Response.Success(request.Id, new { recovered = true })
             : Response.Failure(request.Id, "that recovery code isn't valid, or it has already been used", "bad-code");
+    }
+
+    private Response IssueRecovery(Request request)
+    {
+        if (!unlock.Refresh().CanWeaken)
+            return Response.Failure(request.Id, "the unlock key must be plugged in to issue a recovery code", "locked");
+        return Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() });
     }
 
     private Response ExtensionHello(Request request)

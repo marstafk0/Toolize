@@ -137,7 +137,7 @@
                                    Text="Hide the endless parts of these sites. Turning one back on needs your key." />
                         <StackPanel x:Name="FeedsPanel" />
                         <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
-                                   Text="YouTube commenter avatars and profile links are always off, and porn-spam bot comments are hidden. Feeds and these protections turn off with protection." />
+                                    Text="YouTube commenter avatars and profile links are always off, and porn-spam bot comments are hidden. Feeds and these protections turn off with protection." />
                     </StackPanel>
                 </Border>
 
@@ -146,6 +146,8 @@
                         <TextBlock Style="{StaticResource CardTitle}" Text="BROWSER EXTENSION" />
                         <TextBlock x:Name="ExtensionText" Text="Checking…" />
                         <TextBlock Style="{StaticResource Hint}" x:Name="ExtensionSyncText" Visibility="Collapsed" />
+                        <Button x:Name="DoctorButton" Margin="0,10,0,0" HorizontalAlignment="Left" Content="Run diagnostics" Click="OnDoctorClicked" />
+                        <StackPanel x:Name="DoctorPanel" Margin="0,10,0,0" Visibility="Collapsed" />
                     </StackPanel>
                 </Border>
 
@@ -158,7 +160,13 @@
                         <StackPanel x:Name="KeysPanel" Margin="0,8,0,0" />
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button x:Name="EnrollButton" Content="Set up a USB key" Click="OnEnrollClicked" />
+                            <Button x:Name="UseRecoveryButton" Content="Use recovery code…" Margin="8,0,0,0"
+                                    Background="#8A8A8A" Visibility="Collapsed" Click="OnUseRecoveryClicked" />
+                            <Button x:Name="IssueRecoveryButton" Content="Issue a new recovery code" Margin="8,0,0,0"
+                                    Visibility="Collapsed" Click="OnIssueRecoveryClicked" />
                         </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
+                                   Text="Flash-drive keys are copy-evident, not uncopyable: if a copy and the original are both used, Toolize notices, but a copy used alone looks like the original. Full tamper resistance needs a standard Windows user account with your accountability partner holding the administrator password." />
                     </StackPanel>
                 </Border>
 
@@ -179,6 +187,8 @@
                             </StackPanel>
                             <TextBlock Style="{StaticResource Hint}" x:Name="WatchdogHint" />
                         </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
+                                   Text="Browser policies and the watchdog stop casual removal, but an administrator on this PC can undo them. Full tamper resistance needs a standard user account with your accountability partner holding the admin password." />
                     </StackPanel>
                 </Border>
 
@@ -189,8 +199,15 @@
                         <TextBlock x:Name="UpdateErrorText" Foreground="{StaticResource Bad}" Margin="0,6,0,0" Visibility="Collapsed" />
                         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                             <Button x:Name="UpdateButton" Content="Check for updates" Click="OnUpdateClicked" />
-                            <TextBlock x:Name="ChannelText" Margin="12,8,0,0" Foreground="{StaticResource Muted}" />
+                            <TextBlock Text="Channel:" Margin="14,0,6,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+                            <ComboBox x:Name="ChannelCombo" Width="90" VerticalAlignment="Center" SelectionChanged="OnChannelChanged">
+                                <ComboBoxItem Content="stable" Tag="stable" />
+                                <ComboBoxItem Content="dev" Tag="dev" />
+                            </ComboBox>
                         </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" x:Name="ChannelResultText" Visibility="Collapsed" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Switching between stable and dev is not a weakening change and does not need your key, though installing an update while locked still does." />
                     </StackPanel>
                 </Border>
 

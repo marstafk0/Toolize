@@ -2,7 +2,7 @@ import { maxScores, type ClassifyResult, type Scores } from '../shared/policy';
 import type { ImageSource, PipelinePerf } from '../shared/messages';
 import type { ImageClassifier } from './classifier';
 import type { SafetyClassifier } from './safety-classifier';
-import { cropToImageData, decodeBlob, fetchImageBlob, tileRects } from './image-loader';
+import { cropToImageData, decodeBlob, FetchError, fetchImageBlob, tileRects } from './image-loader';
 import { loadVideoFrames } from './video-loader';
 
 /** A classification request as the pipeline sees it (the wire message minus routing). */
@@ -37,6 +37,7 @@ const MAX_CONCURRENT_DECODES = 4;
 export class ClassifyPipeline {
   private cache = new Map<string, ClassifyResult>();
   private inflight = new Map<string, Promise<ClassifyResult>>();
+  private generation = 0;
   private batcher: Batcher<Scores>;
   private safetyBatcher: Batcher<number> | null = null;
   private jobSlots = new Semaphore(MAX_CONCURRENT_JOBS.cpu);
@@ -66,6 +67,8 @@ export class ClassifyPipeline {
 
   /** Called once the safety model has loaded; from then on every image gets its score. */
   useSafety(safety: SafetyClassifier): void {
+    this.generation++;
+    this.cache.clear();
     this.safety = safety;
     this.safetyBatcher = new Batcher((inputs) => safety.classifyBatch(inputs));
   }
@@ -86,6 +89,7 @@ export class ClassifyPipeline {
   }
 
   classify(req: ClassifyJob): Promise<ClassifyResult> {
+    const generation = this.generation;
     const { key, refine, cache = true } = req;
     const cached = cache ? this.cache.get(key) : undefined;
     if (cached && (cached.tiles || !refine)) {
@@ -95,13 +99,13 @@ export class ClassifyPipeline {
     // Uncached (one-shot) jobs are never the "same request" as anything else, even if
     // a caller reuses a key — sharing a result between two videos would be wrong.
     if (!cache) return this.jobSlots.run(() => this.run(req));
-    const flightKey = `${key}|${refine ? 1 : 0}`;
+    const flightKey = `${generation}|${key}|${refine ? 1 : 0}`;
     let p = this.inflight.get(flightKey);
     if (!p) {
       p = this.jobSlots
         .run(() => this.run(req, cached))
         .then((r) => {
-          if (cache) this.touch(key, r);
+          if (generation === this.generation) this.touch(key, r);
           return r;
         })
         .finally(() => this.inflight.delete(flightKey));
@@ -111,7 +115,14 @@ export class ClassifyPipeline {
   }
 
   private async run(req: ClassifyJob, prior?: ClassifyResult): Promise<ClassifyResult> {
-    if (__DEV__ && devFailOnce(req)) throw new Error('test: transient failure');
+    if (__DEV__ && devFailOnce(req)) {
+      if (req.testTag?.includes('__tz_test_fetch_failure')) {
+        // Leave time for a virtualized list to recycle the DOM node before fallback.
+        await new Promise((r) => setTimeout(r, 1000));
+        throw new FetchError('test: transient fetch failure');
+      }
+      throw new Error('test: transient failure');
+    }
     const t0 = performance.now();
     const { source, refine } = req;
     let t = performance.now();
@@ -151,7 +162,7 @@ export class ClassifyPipeline {
       // size so nothing at the edges is cut off. Its own batches, in parallel.
       const safety = this.safety;
       const safetyBatcher = this.safetyBatcher;
-      const safetyInputs = safety && safetyBatcher && !prior
+      const safetyInputs = safety && safetyBatcher && prior?.safety === undefined
         ? frames.map((f) => cropToImageData(f, { x: 0, y: 0, w: f.width, h: f.height }, safety.inputSize))
         : [];
       const cropMs = lap();
@@ -169,7 +180,7 @@ export class ClassifyPipeline {
       const wholeCount = prior ? 0 : frames.length;
       let whole = prior ? prior.whole : maxScores(scores.slice(0, wholeCount));
       let tileMax = tileCount ? maxScores(scores.slice(wholeCount)) : undefined;
-      let safetyScore = prior ? prior.safety : safetyScores ? Math.max(...safetyScores) : undefined;
+      let safetyScore = prior?.safety ?? (safetyScores ? Math.max(...safetyScores) : undefined);
       if (__DEV__) [whole, tileMax, safetyScore] = devOverride(req, whole, tileMax, safetyScore);
 
       this.classified++;

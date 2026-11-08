@@ -1,10 +1,12 @@
 import type { Settings } from '../shared/settings';
-import { buildMatcher, DEFAULT_WORDS, matchesWords, urlAsText } from '../shared/words';
+import { buildMatcher, DEFAULT_WORDS, matchesStrongQuery, matchesWords, urlAsText } from '../shared/words';
+import { searchQueries } from '../shared/search';
 
 /**
- * The word filter in a page (top frame). Anywhere: an address or title with a blocked
- * word sends the tab to the blocked page — that covers searches, whose words are in the
- * address. On YouTube it also hides every video, Short, playlist and channel whose
+ * The word filter in each frame. An address or title with a blocked word is blocked.
+ * Extracted searches additionally match strong substrings after Unicode/leet folding,
+ * including concatenated or spaced-out queries. On YouTube it hides every video,
+ * Short, playlist and channel whose
  * title or channel name matches, and blocks a matching video's watch page.
  */
 
@@ -24,7 +26,7 @@ export class WordFilter {
   private readonly youtube: boolean;
   private seen = new WeakMap<Element, string>();
 
-  constructor(private readonly onBlocked: () => void) {
+  constructor(private readonly onBlocked: (reason: 'words' | 'search') => void) {
     this.youtube = /(^|\.)youtube\.com$/.test(location.hostname) || (__DEV__ && location.hostname === 'youtube.test');
     this.style.dataset.toolize = 'words';
     this.style.textContent = `[${HIDDEN_ATTR}] { display: none !important; }`;
@@ -55,8 +57,12 @@ export class WordFilter {
     const page = `${location.href}\n${document.title}`;
     if (page !== this.last) {
       this.last = page;
+      if (searchQueries(location.href).some((q) => matchesWords(this.re, q) || matchesStrongQuery(q))) {
+        this.onBlocked('search');
+        return;
+      }
       if (matchesWords(this.re, urlAsText(location.href)) || matchesWords(this.re, document.title)) {
-        this.onBlocked();
+        this.onBlocked('words');
         return;
       }
     }
@@ -71,7 +77,7 @@ export class WordFilter {
     if (location.pathname !== '/watch') return;
     const meta = document.querySelector('ytd-watch-metadata');
     const info = [meta?.querySelector('h1')?.textContent, meta?.querySelector('#owner #channel-name')?.textContent].join(' ');
-    if (matchesWords(this.re, info)) this.onBlocked();
+    if (matchesWords(this.re, info)) this.onBlocked('words');
   }
 
   private hideTiles(): void {

@@ -55,6 +55,27 @@
     </label>
   </section>
 
+  <section class="row">
+    <div>
+      <h2>Safe search</h2>
+      <p class="hint">Forces SafeSearch on Google, Bing, DuckDuckGo and others, and blocks explicit searches outright.</p>
+    </div>
+    <label class="switch" title="Safe search">
+      <input type="checkbox" id="safeSearch" />
+      <span></span>
+    </label>
+  </section>
+
+  <section>
+    <h2>YouTube restricted mode</h2>
+    <div class="seg" id="youtubeRestrict" role="group" aria-label="YouTube restricted mode">
+      <button type="button" data-value="off" aria-pressed="true">Off</button>
+      <button type="button" data-value="moderate" aria-pressed="false">Moderate</button>
+      <button type="button" data-value="strict" aria-pressed="false">Strict</button>
+    </div>
+    <p class="hint">YouTube's own Restricted Mode. Moderate hides most mature videos; Strict hides a lot more, including many ordinary ones.</p>
+  </section>
+
   <section>
     <details id="feeds">
       <summary><h2>Feeds</h2></summary>

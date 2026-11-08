@@ -217,25 +217,29 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
 
 // ---------------------------------------------------------------- site blocklist
 
-const ADULT_RULESET = 'adult';
+const RULESETS = ['adult', 'safesearch', 'youtube-moderate', 'youtube-strict'];
 
 /** Keeps the declarativeNetRequest ruleset in step with the setting. */
 function syncRulesets(): Promise<void> {
   return reconcileDnr(async () => {
     const wanted = async () => {
       const s = await loadSettings();
-      return s.enabled && s.blockAdultSites;
+      return s.enabled ? [
+        ...(s.blockAdultSites ? ['adult'] : []),
+        ...(s.safeSearch ? ['safesearch'] : []),
+        ...(s.youtubeRestrict === 'moderate' || s.youtubeRestrict === 'strict' ? [`youtube-${s.youtubeRestrict}`] : []),
+      ] : [];
     };
-    let next: boolean;
+    let next: string[];
     do {
       next = await wanted();
       const enabled = await chrome.declarativeNetRequest.getEnabledRulesets();
-      if (next !== enabled.includes(ADULT_RULESET)) {
-        await chrome.declarativeNetRequest.updateEnabledRulesets(
-          next ? { enableRulesetIds: [ADULT_RULESET] } : { disableRulesetIds: [ADULT_RULESET] },
-        );
+      const enableRulesetIds = next.filter((id) => !enabled.includes(id));
+      const disableRulesetIds = RULESETS.filter((id) => enabled.includes(id) && !next.includes(id));
+      if (enableRulesetIds.length || disableRulesetIds.length) {
+        await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds, disableRulesetIds });
       }
-    } while (next !== await wanted());
+    } while (next.join(',') !== (await wanted()).join(','));
   });
 }
 

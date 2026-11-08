@@ -124,15 +124,15 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
   const blocked = { type: 'redirect', redirect: { extensionPath: '/blocked/blocked.html' } };
   const rules = [
     {
-      id: 1, priority: 2, action: blocked,
+      id: 1, priority: 11, action: blocked,
       condition: { requestDomains: domains, resourceTypes: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest'] },
     },
     // Long tail: hostname keyword match (STRONG_WORDS / WEAK_WORDS), several small rules.
     ...adultHostRegexes().map((regexFilter, i) => ({
-      id: 3 + i, priority: 1, action: blocked, condition: { regexFilter, resourceTypes: ['main_frame'] },
+      id: 3 + i, priority: 10, action: blocked, condition: { regexFilter, resourceTypes: ['main_frame'] },
     })),
   ];
-  if (dev) rules.push({ id: 99, priority: 3, action: blocked, condition: { urlFilter: '__tz_test_adult', resourceTypes: ['main_frame'] } });
+  if (dev) rules.push({ id: 99, priority: 12, action: blocked, condition: { urlFilter: '__tz_test_adult', resourceTypes: ['main_frame'] } });
   mkdirSync(join(out, 'rules'), { recursive: true });
   writeFileSync(join(out, 'rules/adult.json'), JSON.stringify(rules));
   writeFileSync(
@@ -140,6 +140,18 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
     'rules/adult.json includes the OISD NSFW list (https://oisd.nl), licensed under the GNU GPL v3.\n' +
       'The extension refreshes it daily from https://nsfw.oisd.nl/domainswild2.\n',
   );
+}
+
+// ---- search-engine filters and optional YouTube Restricted Mode headers
+{
+  const tmp = join(out, '.search-rules.mjs');
+  await esbuild.build({ entryPoints: [join(root, 'src/background/search-rules.ts')], outfile: tmp, bundle: true, format: 'esm', logLevel: 'silent' });
+  const { safeSearchRules, youtubeRestrictRules } = await import(pathToFileURL(tmp).href);
+  rmSync(tmp);
+  writeFileSync(join(out, 'rules/safesearch.json'), JSON.stringify(safeSearchRules()));
+  for (const level of ['Moderate', 'Strict']) {
+    writeFileSync(join(out, `rules/youtube-${level.toLowerCase()}.json`), JSON.stringify(youtubeRestrictRules(level)));
+  }
 }
 
 // ---- TF.js WASM backend binaries (fallback when there's no hardware WebGL).

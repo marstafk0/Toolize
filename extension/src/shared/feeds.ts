@@ -74,7 +74,7 @@ export function normalize(s: string): string {
 }
 
 /** Letters only, digits read as letters: "o.n.l.y f4ns" → "onlyfans". */
-const squash = (s: string): string => s.replace(/./gu, (c) => LEET[c] ?? c).replace(/[^a-z]/g, '');
+export const squash = (s: string): string => normalize(s).replace(/./gu, (c) => LEET[c] ?? c).replace(/[^a-z]/g, '');
 
 const BOT_EMOJI_NAME = /[🔞💋🍑🍆💦👅🥵🫦]/u;
 const BOT_EMOJI_TEXT = /[🔞🫦]/u;

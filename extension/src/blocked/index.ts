@@ -16,6 +16,7 @@ const WHY: Record<string, string> = {
   images: 'Several explicit images were found on this site, so Toolize now blocks all of it.',
   label: 'This site labels itself as adult content, so Toolize blocks it.',
   words: 'The address or title of this page has a blocked word in it.',
+  search: 'This search contains explicit or blocked words, so Toolize blocked the results.',
 };
 
 const $ = (id: string) => document.getElementById(id)!;

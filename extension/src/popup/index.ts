@@ -64,7 +64,8 @@ function render(s: Settings): void {
   $<HTMLInputElement>('enabled').checked = s.enabled;
   $<HTMLInputElement>('blockAdultSites').checked = s.blockAdultSites;
   $<HTMLInputElement>('wordFilter').checked = s.wordFilter;
-  for (const [group, value] of [['preset', s.preset], ['mode', s.mode]] as const) {
+  $<HTMLInputElement>('safeSearch').checked = s.safeSearch;
+  for (const [group, value] of [['preset', s.preset], ['mode', s.mode], ['youtubeRestrict', s.youtubeRestrict]] as const) {
     $(group).querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === value)));
   }
   const t = PRESETS[s.preset];
@@ -91,7 +92,7 @@ async function change(patch: Record<string, unknown>): Promise<void> {
   }
 }
 
-function bindSeg(id: 'preset' | 'mode'): void {
+function bindSeg(id: 'preset' | 'mode' | 'youtubeRestrict'): void {
   $(id).addEventListener('click', async (e) => {
     const value = (e.target as HTMLElement).closest('button')?.dataset.value;
     if (value) await change({ [id]: value });
@@ -226,13 +227,14 @@ async function refreshStats(): Promise<void> {
   bindVerdicts();
   onSettingsChanged(render);
   render(await loadSettings());
-  for (const id of ['enabled', 'blockAdultSites', 'wordFilter'] as const) {
+  for (const id of ['enabled', 'blockAdultSites', 'wordFilter', 'safeSearch'] as const) {
     $<HTMLInputElement>(id).addEventListener('change', (e) =>
       change({ [id]: (e.target as HTMLInputElement).checked }),
     );
   }
   bindSeg('preset');
   bindSeg('mode');
+  bindSeg('youtubeRestrict');
   await refreshStats();
   setInterval(refreshStats, 1000);
 })();

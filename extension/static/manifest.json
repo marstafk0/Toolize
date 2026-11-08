@@ -58,6 +58,21 @@
         "id": "adult",
         "enabled": true,
         "path": "rules/adult.json"
+      },
+      {
+        "id": "safesearch",
+        "enabled": true,
+        "path": "rules/safesearch.json"
+      },
+      {
+        "id": "youtube-moderate",
+        "enabled": false,
+        "path": "rules/youtube-moderate.json"
+      },
+      {
+        "id": "youtube-strict",
+        "enabled": false,
+        "path": "rules/youtube-strict.json"
       }
     ]
   },

@@ -19,6 +19,7 @@ import * as esbuild from 'esbuild';
 import { chromium } from 'playwright-core';
 import { findChromium, isolatedDist } from './chromium.mjs';
 import { runSwitchAndFalseBlur } from './switch-and-false-blur.mjs';
+import { runSearchLockdown } from './search-lockdown.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = isolatedDist(join(root, 'dist'));
@@ -96,7 +97,7 @@ try {
     args: [
       `--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
       // Real-looking hostnames for the site-learning tests (localhost is never learned).
-      '--host-resolver-rules=MAP *.test 127.0.0.1, MAP pornhub.com 127.0.0.1, MAP tube8.com 127.0.0.1',
+      '--host-resolver-rules=MAP *.test 127.0.0.1, MAP pornhub.com 127.0.0.1, MAP tube8.com 127.0.0.1, MAP www.google.com 127.0.0.1, MAP www.bing.com 127.0.0.1, MAP duckduckgo.com 127.0.0.1, MAP www.youtube.com 127.0.0.1',
       // WebGPU for the safety model, headless included (NO_GPU runs without it).
       ...(process.env.NO_GPU ? [] : ['--enable-unsafe-webgpu']),
       ...(process.env.NO_GPU ? ['--disable-gpu'] : []),
@@ -118,10 +119,13 @@ try {
   check('model cold start', !!booted, booted ? `load+warm-up ${booted.loadMs} ms (${booted.backend}), ready after ${Date.now() - tBoot} ms` : '');
 
   const regressions = await runSwitchAndFalseBlur({ context, sw, setSettings, waitFor, check, filter, port: PORT, artifacts });
-  if (filter && !filter.test('legacy') && regressions.length === 0) throw new Error(`TEST_FILTER matched no cases: ${filter}`);
+  if (filter && !filter.test('legacy') && !filter.test('search') && regressions.length === 0) throw new Error(`TEST_FILTER matched no cases: ${filter}`);
+  if (!filter || filter.test('search')) {
+    await runSearchLockdown({ context, sw, setSettings, waitFor, check, root, dist, port: PORT });
+  }
   // The original suite is sequential and shares fixtures; keep it as one named group.
   if (!filter || filter.test('legacy')) {
-  await setSettings({ enabled: true, preset: 'balanced', mode: 'safe', blockAdultSites: true, feeds: {}, wordFilter: true, trustedChannels: [] });
+  await setSettings({ enabled: true, preset: 'balanced', mode: 'safe', blockAdultSites: true, feeds: {}, wordFilter: true, safeSearch: true, youtubeRestrict: 'off', trustedChannels: [] });
   await sw.evaluate(async () => { await chrome.storage.local.set({ learnedSites: [] }); await self.__tz.syncDynamicRules(); });
   const page = await context.newPage();
   const errors = [];
@@ -848,8 +852,8 @@ try {
   // ---- word filter: blocked words in an address or title; YouTube tiles and videos
   const wf = await context.newPage();
   await wf.goto(`http://localhost:${PORT}/pages/frame.html?q=nude+photography+tips`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await waitFor(() => wf.url().includes('reason=words'), { timeout: 5000 });
-  check('a search for blocked words is blocked', wf.url().includes('reason=words'), wf.url());
+  await waitFor(() => wf.url().includes('reason=search'), { timeout: 5000 });
+  check('a search for blocked words is blocked', wf.url().includes('reason=search'), wf.url());
   await wf.goto(`http://localhost:${PORT}/pages/frame.html?q=sussex+bikini+bottom+essex`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await new Promise((r) => setTimeout(r, 1000));
   check('whole words only, and Bikini Bottom is fine', !wf.url().includes('/blocked/'), wf.url());
@@ -978,6 +982,18 @@ try {
   await waitFor(async () => (await getVerdicts()).length > 0);
   await verdictPage.close();
   check('closing a tab drops its verdict buffer', !!(await waitFor(async () => (await getVerdicts()).length === 0)));
+
+  check('popup shows SafeSearch enabled and YouTube restriction off by default',
+    await popup.locator('#safeSearch').isChecked() &&
+    await popup.locator('#youtubeRestrict button[data-value="off"]').getAttribute('aria-pressed') === 'true');
+  await popup.locator('label[title="Safe search"]').click();
+  await popup.waitForFunction(async () => (await chrome.storage.local.get('settings')).settings.safeSearch === false);
+  check('popup SafeSearch switch saves through the settings path', !(await popup.locator('#safeSearch').isChecked()));
+  await popup.locator('#youtubeRestrict button[data-value="strict"]').click();
+  await popup.waitForFunction(async () => (await chrome.storage.local.get('settings')).settings.youtubeRestrict === 'strict');
+  check('popup YouTube segmented control saves and renders Strict',
+    await popup.locator('#youtubeRestrict button[data-value="strict"]').getAttribute('aria-pressed') === 'true');
+  await setSettings({ safeSearch: true, youtubeRestrict: 'off' });
 
   check('no page errors', errors.length === 0, errors.join('; '));
   }

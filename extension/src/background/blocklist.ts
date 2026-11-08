@@ -29,13 +29,14 @@ const MIN_RATIO = 0.8;
 /** More removals than this fraction of the shipped list are not believed either. */
 const MAX_REMOVED_RATIO = 0.05;
 
-// Dynamic rule ids and priorities. The static list is priority 2, the keyword rule 1.
+// Adult rules beat SafeSearch's priority 1-3 redirect/allow rules. A SafeSearch
+// exemption must never exempt an adult-listed or learned site from blocking.
 const ADDED_ID = 2;
 const REMOVED_ID = 3;
 const LEARNED_BASE_ID = 1000;
-const PRIO_ADDED = 2;
-const PRIO_REMOVED = 3; // beats the static list and the keyword rule for dropped domains
-const PRIO_LEARNED = 4; // beats everything: a learned block is never undone by a list
+const PRIO_ADDED = 11;
+const PRIO_REMOVED = 12; // beats the static list and the keyword rule for dropped domains
+const PRIO_LEARNED = 13; // beats everything: a learned block is never undone by a list
 
 const ALL_TYPES: chrome.declarativeNetRequest.ResourceType[] = [
   'main_frame' as chrome.declarativeNetRequest.ResourceType,

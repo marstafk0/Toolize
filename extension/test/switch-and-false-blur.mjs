@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 const DEFAULTS = {
   enabled: true, preset: 'balanced', mode: 'safe', blockAdultSites: true,
-  allowLiveStreams: false, feeds: {}, wordFilter: true, blockedWords: [], trustedChannels: [],
+  allowLiveStreams: false, feeds: {}, wordFilter: true, safeSearch: true, youtubeRestrict: 'off', blockedWords: [], trustedChannels: [],
 };
 
 export async function runSwitchAndFalseBlur({ context, sw, setSettings, waitFor, check, filter, port, artifacts }) {

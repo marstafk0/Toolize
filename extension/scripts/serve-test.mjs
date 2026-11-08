@@ -8,6 +8,8 @@
 //   POST /upload/<name>.webm          stores a browser-recorded test clip (OS temp dir)
 //   /media/<name>.webm                serves it back (?cors=1 adds ACAO)
 //   <site>.test                       fake social-site pages for the feed tests
+//   /search                          search-engine stand-in (hosts mapped by e2e)
+//   /echo-headers                    request headers as JSON, for Restricted Mode
 //   /corpus/index.json                lists test/corpus/{safe,flag}/**  (your local images)
 //   /corpus/files/*                   corpus images
 //   POST /corpus/results              saves a regression run to test/corpus/results/
@@ -79,6 +81,7 @@ function handler(req, res) {
   // Stand-ins for social sites (e2e maps *.test here): the feed tests need the
   // real hostnames and paths, since toggles depend on both.
   const host = (req.headers.host ?? '').split(':')[0];
+  if (path === '/echo-headers') return send(200, JSON.stringify(req.headers), MIME['.json']);
   if (host === 'youtube.test' && (path === '/' || path === '/watch' || path.startsWith('/shorts/'))) {
     return send(200, readFileSync(join(pagesDir, 'youtube.html')), MIME['.html']);
   }
@@ -95,6 +98,10 @@ function handler(req, res) {
   const feedRoute = feedRoutes[host];
   if (feedRoute && feedRoute[1].test(path)) {
     return send(200, readFileSync(join(pagesDir, `${feedRoute[0]}.html`)), MIME['.html']);
+  }
+  // Keep existing social-site /search fixtures above this generic engine fallback.
+  if (path === '/search' || path === '/search/' || (host === 'www.youtube.com' && path === '/')) {
+    return send(200, '<!doctype html><title>Search results</title><p>Search fixture</p>', MIME['.html']);
   }
 
   const img = path.match(/^\/(img|img-referer)\/(\d+)x(\d+)\/([\w.-]+)\.png$/);

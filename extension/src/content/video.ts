@@ -1,8 +1,10 @@
-import { decide, isObviouslyExplicit, PRESETS } from '../shared/policy';
+import { decide, isObviouslyExplicit, PRESETS, type ClassifyResult } from '../shared/policy';
+import type { Frame, VerdictDecision } from '../shared/verdicts';
 import { channelKey, isYouTube, trustedSet } from '../shared/channels';
 import { isLiveSite, type Settings } from '../shared/settings';
 import { ClassifyClient, isFetchFailure } from './client';
 import type { Stamper, State } from './state';
+import type { VerdictLog } from './verdicts';
 
 /** How often each sampled video is classified, and how far it backs off when stable. */
 const SAMPLE_MS = 1000;
@@ -42,9 +44,6 @@ const FRAME_MAX_SIDE = 448;
 /** Videos smaller than this are decorative loops/backgrounds too small to read. */
 const MIN_SIDE = 64;
 
-/** One frame: over the threshold, near it (or unread), or clearly fine. */
-type Frame = 'flagged' | 'doubtful' | 'clean';
-
 interface Track {
   recent: Frame[];
   cleanStreak: number;
@@ -76,6 +75,7 @@ interface Track {
   generation: number;
   preset: Settings['preset'];
   posterSrc?: string;
+  posterVerdict?: VerdictDecision;
   pausedByUs?: boolean;
 }
 
@@ -115,6 +115,7 @@ export class VideoWatcher {
   constructor(
     private readonly client: ClassifyClient,
     private readonly stamper: Stamper,
+    private readonly verdicts: VerdictLog,
   ) {}
 
   setSettings(s: Settings): void {
@@ -184,6 +185,7 @@ export class VideoWatcher {
     // A clean poster reveals the frame shown before playback; frames take over on play.
     if ((t.posterSrc ?? '') !== video.poster) {
       t.posterSrc = video.poster;
+      t.posterVerdict = undefined;
       if (!t.recent.length) {
         this.stamper.set(video, this.pendingState());
       }
@@ -229,8 +231,11 @@ export class VideoWatcher {
       const r = this.client.cached(key) ?? (await this.client.classify(key, { url: posterSrc }, false));
       if (!this.current(video, t, generation, revision) || video.poster !== posterSrc || t.posterSrc !== posterSrc || t.recent.length) return;
       const d = decide(r, PRESETS[this.settings!.preset]);
-      if (d === 'blocked' && video.paused) this.stamper.set(video, 'blocked');
-      else if (d === 'clean' && video.paused && !t.recent.length) this.stamper.set(video, 'clean');
+      if (d !== 'refine' && video.paused) {
+        this.stamper.set(video, d);
+        if (t.posterVerdict !== d) this.verdicts.record('poster', d, r, this.settings!.preset);
+        t.posterVerdict = d;
+      }
     } catch {
       /* poster is a hint, not a verdict */
     }
@@ -294,8 +299,11 @@ export class VideoWatcher {
         frame = grabFrame(video);
       } catch {
         // Tainted canvas: one whole-file verdict stands in for the frame window.
-        const flagged = await this.classifyWholeFile(video, t, generation, revision, tag);
-        if (this.current(video, t, generation, revision)) this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
+        const r = await this.classifyWholeFile(video, t, generation, revision, tag);
+        if (r && this.current(video, t, generation, revision)) {
+          const decision = decide(r, PRESETS[this.settings!.preset]) === 'clean' ? 'clean' : 'blocked';
+          this.setVerdict(video, t, decision, r);
+        }
         return;
       }
       const still = video.paused ? video.currentTime : undefined;
@@ -308,8 +316,8 @@ export class VideoWatcher {
       const decision = decide(r, th);
       const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
       const obvious = isObviouslyExplicit(r, th);
-      if (still !== undefined) this.recordStill(video, t, still, result, obvious);
-      else this.record(video, t, result, obvious);
+      if (still !== undefined) this.recordStill(video, t, still, result, obvious, r);
+      else this.record(video, t, result, obvious, r);
     } catch (e) {
       if (this.current(video, t, generation, revision)) {
         if (e instanceof Unreadable) {
@@ -333,24 +341,24 @@ export class VideoWatcher {
   }
 
   /** Cross-origin file without CORS: let the offscreen doc fetch and sample it. */
-  private async classifyWholeFile(video: HTMLVideoElement, t: Track, generation: number, revision: number, tag?: string): Promise<boolean> {
+  private async classifyWholeFile(video: HTMLVideoElement, t: Track, generation: number, revision: number, tag?: string): Promise<ClassifyResult | null> {
     if (t.drm) {
       this.onDrm(video);
-      return false;
+      return null;
     }
     if (t.fileTried || !/^https?:/.test(t.src)) throw new Unreadable('no readable pixels');
     const key = this.client.key(`video:${t.src}`);
     try {
       let r = await this.client.classify(key, { videoUrl: t.src }, false, tag);
-      if (!this.current(video, t, generation, revision)) return false;
+      if (!this.current(video, t, generation, revision)) return null;
       if (decide(r, PRESETS[this.settings!.preset]) === 'refine') {
         r = await this.client.classify(key, { videoUrl: t.src }, true, tag);
-        if (!this.current(video, t, generation, revision)) return false;
+        if (!this.current(video, t, generation, revision)) return null;
       }
       t.fileTried = true;
       t.failures = 0;
       t.dead = true; // whole-file verdict: no point sampling further
-      return decide(r, PRESETS[this.settings!.preset]) !== 'clean';
+      return r;
     } catch (e) {
       if (isFetchFailure(e)) throw new Error(`video fetch failed: ${(e as Error).message}`);
       throw e;
@@ -408,7 +416,7 @@ export class VideoWatcher {
    * has been shown clean, a single still over the threshold (a seek landing on a
    * misjudged frame) is not enough — it takes two flagged stills, or an obvious one.
    */
-  private recordStill(video: HTMLVideoElement, t: Track, at: number, frame: Frame, obvious: boolean): void {
+  private recordStill(video: HTMLVideoElement, t: Track, at: number, frame: Frame, obvious: boolean, r: ClassifyResult): void {
     t.stillAt = at;
     t.recent.push(frame);
     if (t.recent.length > WINDOW) t.recent.shift();
@@ -416,10 +424,10 @@ export class VideoWatcher {
     const flagged = t.recent.filter((f) => f === 'flagged').length;
     const blur = obvious || (shown ? flagged >= FLAGGED_TO_BLUR : frame !== 'clean');
     t.cleanStreak = blur ? 0 : CLEAN_STREAK;
-    this.setVerdict(video, t, blur ? 'blocked' : 'clean', false); // already paused
+    this.setVerdict(video, t, blur ? 'blocked' : 'clean', r, false, frame, obvious); // already paused
   }
 
-  private record(video: HTMLVideoElement, t: Track, frame: Frame, obvious: boolean): void {
+  private record(video: HTMLVideoElement, t: Track, frame: Frame, obvious: boolean, r: ClassifyResult): void {
     t.recent.push(frame);
     if (t.recent.length > WINDOW) t.recent.shift();
     t.cleanStreak = frame === 'clean' ? t.cleanStreak + 1 : 0;
@@ -433,18 +441,34 @@ export class VideoWatcher {
     const blur = confirmed || (!shown && t.recent.some((f) => f !== 'clean'));
     if (frame !== 'clean') t.every = SAMPLE_MS; // something was off: look again soon
     if (blur) {
-      this.setVerdict(video, t, 'blocked', confirmed);
+      this.setVerdict(video, t, 'blocked', r, confirmed, frame, obvious);
     } else if (t.cleanStreak >= CLEAN_STREAK || t.recent.every((f) => f === 'clean')) {
       // A streak only matters after something was off; a video that has looked clean
       // from its first frame is shown straight away, like an image. Then ease off, so a
       // long video doesn't classify forever at 1/s.
       t.every = Math.min(MAX_SAMPLE_MS, Math.max(SAMPLE_MS, t.every * 1.5));
-      this.setVerdict(video, t, 'clean');
+      this.setVerdict(video, t, 'clean', r, false, frame, obvious);
     }
   }
 
-  private setVerdict(video: HTMLVideoElement, t: Track, verdict: State, pause = verdict === 'blocked'): void {
+  private setVerdict(
+    video: HTMLVideoElement, t: Track, verdict: VerdictDecision, r: ClassifyResult,
+    pause = verdict === 'blocked', frame?: Frame, obvious = false,
+  ): void {
     if (t.exempt) return; // a sample that was already in flight when the exemption began
+    if (t.verdict !== verdict) {
+      // Allocate the diagnostic snapshot only on transitions, never on stable samples.
+      const frameInfo = frame ? { frame, obvious, window: [...t.recent] } : undefined;
+      let why: string | undefined;
+      if (frame) {
+        const flagged = t.recent.filter((f) => f === 'flagged').length;
+        why = verdict === 'clean' ? (video.paused ? 'clean paused frame' : `${t.cleanStreak} consecutive clean frames`)
+          : obvious ? 'obviously explicit frame'
+          : flagged >= FLAGGED_TO_BLUR ? `${flagged} flagged of last ${t.recent.length} frames`
+          : 'flagged or doubtful frame before clean reveal';
+      }
+      this.verdicts.record('video', verdict, { ...r, width: video.videoWidth, height: video.videoHeight }, this.settings!.preset, frameInfo, why);
+    }
     t.verdict = verdict;
     this.stamper.set(video, verdict);
     // YouTube is never paused: its players don't recover well from being paused under
@@ -473,6 +497,7 @@ export class VideoWatcher {
     t.nextAt = 0;
     t.every = FIRST_SAMPLE_MS;
     t.posterSrc = undefined;
+    t.posterVerdict = undefined;
     t.fileTried = false;
     t.dead = t.drm;
     if (!restore) t.verdict = undefined;

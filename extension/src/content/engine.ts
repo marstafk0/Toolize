@@ -1,5 +1,5 @@
 import blurCss from '../shared/blur.css';
-import type { StatsReport } from '../shared/messages';
+import type { StatsReport, VerdictsReport } from '../shared/messages';
 import type { Settings } from '../shared/settings';
 import { loadSettings } from '../shared/settings';
 import { isYouTube } from '../shared/channels';
@@ -8,6 +8,7 @@ import { ClassifyClient } from './client';
 import { ImageWatcher } from './images';
 import { Stamper } from './state';
 import { VideoWatcher } from './video';
+import { VerdictLog } from './verdicts';
 import type { LearnSiteRequest, LearnSiteResult } from '../shared/messages';
 
 /** Distinct explicit images on one page before the whole site is blocked. */
@@ -51,16 +52,18 @@ export class BlurEngine {
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly client = new ClassifyClient();
+  private readonly verdicts = new VerdictLog(() => this.scheduleStats());
   private readonly stamper = new Stamper(() => this.scheduleStats());
-  private readonly images = new ImageWatcher(this.client, this.stamper, (key) => this.onExplicit(key));
+  private readonly images = new ImageWatcher(this.client, this.stamper, this.verdicts, (key) => this.onExplicit(key));
   private settings: Settings | null = null;
   private explicit = new Set<string>();
   private learning = false;
-  private readonly videos = new VideoWatcher(this.client, this.stamper);
+  private readonly videos = new VideoWatcher(this.client, this.stamper, this.verdicts);
   private readonly backgrounds = new BackgroundWatcher(
     this.client,
     () => this.liveRoots(),
     () => this.scheduleStats(),
+    this.verdicts,
   );
 
   private readonly mo = new MutationObserver((records) => this.onMutations(records));
@@ -280,6 +283,10 @@ export class BlurEngine {
         stats: this.stamper.stats(this.backgrounds.blockedCount),
       };
       chrome.runtime.sendMessage(msg).catch(() => {});
+      const entries = this.verdicts.take();
+      if (entries.length) {
+        chrome.runtime.sendMessage({ target: 'background', kind: 'verdicts', entries } satisfies VerdictsReport).catch(() => {});
+      }
     }, STATS_DEBOUNCE_MS);
   }
 }

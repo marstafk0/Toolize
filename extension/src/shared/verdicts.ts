@@ -28,16 +28,19 @@ export interface VerdictEntry {
 export const roundScore = (score: number): number => Math.round(score * 100) / 100;
 const scoreText = (score: number): string => score.toFixed(2);
 
-/** Mirrors decide(): safety supersedes NSFWJS, and tiles only count when eligible. */
+/** Mirrors decide(): whole-image triggers beside safety; tiles only when eligible. */
 export function verdictReasons(r: ClassifyResult, t: Thresholds): string[] {
   const why: string[] = [];
-  const over = (label: string, score: number, threshold: number, suffix = '') => {
-    if (score > threshold) why.push(`${label} ${scoreText(score)} > ${scoreText(threshold)}${suffix}`);
+  const over = (label: string, score: number, threshold: number | null, suffix = '') => {
+    if (threshold !== null && score > threshold) why.push(`${label} ${scoreText(score)} > ${scoreText(threshold)}${suffix}`);
   };
   if (r.safety !== undefined) {
     over('safety', r.safety, t.safety);
     over('sexy', r.whole.sexy, t.sexyBesideSafety, ' (beside safety)');
-    return why.length ? why : [`safety ${scoreText(r.safety)}`, `sexy ${scoreText(r.whole.sexy)}`];
+    over('hentai', r.whole.hentai, t.hentaiBesideSafety, ' (beside safety)');
+    over('porn', r.whole.porn, t.pornBesideSafety, ' (beside safety)');
+    return why.length ? why : [`safety ${scoreText(r.safety)}`, ...(['sexy', 'hentai', 'porn'] as const)
+      .map((key) => `${key} ${scoreText(r.whole[key])}`)];
   }
   for (const key of ['porn', 'hentai', 'sexy'] as const) over(key, r.whole[key], t[key]);
   if (!isFlagged(r.whole, t) && isBorderline(r.whole, t) && isTileable(r) && r.tiles) {

@@ -131,6 +131,47 @@ try {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   if (process.env.VERBOSE) page.on('console', (m) => m.text().includes('[toolize]') && console.log('    PAGE', m.text()));
+  {
+    const tmp = join(artifacts, '.safety-policy.mjs');
+    await esbuild.build({
+      stdin: { contents: "export * from './policy'; export { verdictReasons } from './verdicts';", resolveDir: join(root, 'src/shared') },
+      outfile: tmp, bundle: true, format: 'esm', logLevel: 'silent',
+    });
+    const { decide, isExplicit, verdictReasons, PRESETS } = await import(pathToFileURL(tmp).href);
+    const r = { whole: { drawing: 0, hentai: 0, neutral: 0.01, porn: 0.99, sexy: 0 }, safety: 0.1, width: 320, height: 240 };
+    const enabledPorn = { ...PRESETS.balanced, pornBesideSafety: 0.97 };
+    check('optional porn trigger blocks, learns and explains when enabled', decide(r, enabledPorn) === 'blocked' &&
+      isExplicit(r, enabledPorn) && verdictReasons(r, enabledPorn).some((s) => s.startsWith('porn ') && s.endsWith('(beside safety)')));
+    const boundary = { ...r, whole: { ...r.whole, hentai: 0.5, porn: 0, neutral: 0.5 } };
+    check('hentai threshold equality stays clean and does not learn', decide(boundary, PRESETS.balanced) === 'clean' && !isExplicit(boundary, PRESETS.balanced));
+    check('hentai beside-safety thresholds increase across presets', PRESETS.strict.hentaiBesideSafety < PRESETS.balanced.hentaiBesideSafety &&
+      PRESETS.balanced.hentaiBesideSafety < PRESETS.relaxed.hentaiBesideSafety);
+  }
+  // Hentai evidence still blocks when safety underrates it; the porn trigger is
+  // disabled because the measured candidate added FPs without recovering misses.
+  const besideSafetyPage = await context.newPage();
+  await besideSafetyPage.goto(`${BASE}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
+  await besideSafetyPage.evaluate(() => {
+    for (const tag of ['hentai_only', 'porn_only']) {
+      const img = new Image();
+      img.id = tag;
+      img.src = `/img/320x240/beside-safety__tz_test_${tag}.png`;
+      document.body.prepend(img);
+    }
+  });
+  for (const tag of ['hentai_only', 'porn_only']) {
+    const expected = tag === 'hentai_only' ? 'blocked' : 'clean';
+    check(`${tag} is ${expected} beside safety=0.1`, !!(await waitFor(() => besideSafetyPage.evaluate(({ id, expected }) =>
+      document.getElementById(id).getAttribute('data-tz') === expected, { id: tag, expected }))));
+  }
+  const besideSafetyVerdicts = await waitFor(() => sw.evaluate(async (url) => {
+    const tab = (await chrome.tabs.query({})).find((t) => t.url === url);
+    const rows = (await chrome.storage.session.get('tabVerdicts')).tabVerdicts?.[tab?.id] ?? [];
+    return rows.filter((v) => v.scores.safety === 0.1).length === 2 ? rows : null;
+  }, besideSafetyPage.url()));
+  check('hentai beside-safety verdict explains the trigger', !!besideSafetyVerdicts?.some((v) =>
+    v.scores.safety === 0.1 && v.why.some((why) => why.startsWith('hentai ') && why.endsWith('(beside safety)'))));
+  await besideSafetyPage.close();
   const t0 = Date.now();
   await page.goto(`${BASE}/pages/index.html`, { waitUntil: 'domcontentloaded' });
 
@@ -515,6 +556,18 @@ try {
   await waitFor(async () => (await sw.evaluate(() => chrome.storage.local.get('learnedSites'))).learnedSites?.length === 0);
   await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('Unblock on the blocked page lets the site load again', !learnPage.url().includes('/blocked/'), learnPage.url());
+
+  const illustratedPage = await context.newPage();
+  await illustratedPage.goto(`http://illustrated.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
+  await illustratedPage.evaluate(() => {
+    for (let i = 0; i < 3; i++) {
+      const img = new Image();
+      img.src = `/img/320x240/learn-${i}__tz_test_hentai_only.png`;
+      document.body.append(img);
+    }
+  });
+  check('3 hentai images learn a site even with safety=0.1', !!(await waitFor(onBlockedPage(illustratedPage, 'images'), { timeout: 20_000 })));
+  await illustratedPage.close();
 
   // A self-labelled adult page is blocked on sight.
   await learnPage.goto(`http://rated.test:${PORT}/pages/rated.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});

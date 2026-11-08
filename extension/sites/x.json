@@ -1,0 +1,42 @@
+{
+  "id": "x",
+  "name": "X / Twitter",
+  "hosts": ["x.com", "twitter.com"],
+  "toggles": [
+    {
+      "id": "home",
+      "label": "Home timeline",
+      "hint": "For you and Following on the home page. Search, notifications, messages, profiles and posts still work. Selectors unverified against a logged-in account.",
+      "paths": "^/(home/?)?(\\?.*)?$",
+      "hide": [
+        "[data-testid=\"primaryColumn\"] [aria-label^=\"Timeline: Your Home Timeline\"]",
+        "div[data-testid=\"primaryColumn\"] section[role=\"region\"]"
+      ],
+      "notice": {
+        "at": "[data-testid=\"primaryColumn\"]",
+        "text": "Home timeline hidden by Toolize. Search for what you came for."
+      }
+    },
+    {
+      "id": "explore",
+      "label": "Explore",
+      "hint": "Explore content, trending topics and Who to follow on the Explore page. Selectors unverified against a logged-in account.",
+      "paths": "^/explore(/[^?]*)?(\\?.*)?$",
+      "hide": [
+        "div[data-testid=\"primaryColumn\"] section[role=\"region\"]",
+        "a[href=\"/explore\"]",
+        "[aria-label=\"Timeline: Trending now\"]",
+        "aside[aria-label=\"Who to follow\"]"
+      ]
+    },
+    {
+      "id": "sidebar",
+      "label": "Sidebar suggestions",
+      "hint": "Trends and Who to follow in the right column. Sidebar search stays. Selectors unverified against a logged-in account.",
+      "hide": [
+        "[data-testid=\"sidebarColumn\"] [aria-label=\"Timeline: Trending now\"]",
+        "[data-testid=\"sidebarColumn\"] aside[aria-label=\"Who to follow\"]"
+      ]
+    }
+  ]
+}

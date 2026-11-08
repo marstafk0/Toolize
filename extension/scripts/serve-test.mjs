@@ -7,7 +7,7 @@
 //   /img-referer/<w>x<h>/<name>.png   403 unless Referer is a localhost page (hotlink-protected CDN sim)
 //   POST /upload/<name>.webm          stores a browser-recorded test clip (OS temp dir)
 //   /media/<name>.webm                serves it back (?cors=1 adds ACAO)
-//   youtube.test, facebook.test       fake YouTube / Facebook pages for the feed tests
+//   <site>.test                       fake social-site pages for the feed tests
 //   /corpus/index.json                lists test/corpus/{safe,flag}/**  (your local images)
 //   /corpus/files/*                   corpus images
 //   POST /corpus/results              saves a regression run to test/corpus/results/
@@ -76,7 +76,7 @@ function handler(req, res) {
     res.end(body);
   };
 
-  // Stand-ins for YouTube and Facebook (e2e maps *.test here): the feed tests need the
+  // Stand-ins for social sites (e2e maps *.test here): the feed tests need the
   // real hostnames and paths, since toggles depend on both.
   const host = (req.headers.host ?? '').split(':')[0];
   if (host === 'youtube.test' && (path === '/' || path === '/watch' || path.startsWith('/shorts/'))) {
@@ -84,6 +84,17 @@ function handler(req, res) {
   }
   if (host === 'facebook.test' && (path === '/' || path.startsWith('/groups/') || path.startsWith('/reel/'))) {
     return send(200, readFileSync(join(pagesDir, 'facebook.html')), MIME['.html']);
+  }
+  const feedRoutes = {
+    'x.test': ['x', /^\/(?:home\/?|explore(?:\/.*)?|status\/.*|someone(?:\/status\/.*)?|search|notifications|messages)?$/],
+    'reddit.test': ['reddit', /^\/(?:r\/.*|comments\/.*|best\/?|hot\/?|new\/?|top\/?|rising\/?|search\/?)?$/],
+    'instagram.test': ['instagram', /^\/(?:explore(?:\/.*)?|reels(?:\/.*)?|p\/.*|direct\/.*|someone\/?)?$/],
+    'linkedin.test': ['linkedin', /^\/(?:feed\/?|in\/.*|messaging\/?|jobs\/?|search\/?|feed-news\/?)?$/],
+    'tiktok.test': ['tiktok', /^\/(?:foryou\/?|en\/?|explore\/?|live(?:\/.*)?|@[^/]+(?:\/video\/.*)?|search)?$/],
+  };
+  const feedRoute = feedRoutes[host];
+  if (feedRoute && feedRoute[1].test(path)) {
+    return send(200, readFileSync(join(pagesDir, `${feedRoute[0]}.html`)), MIME['.html']);
   }
 
   const img = path.match(/^\/(img|img-referer)\/(\d+)x(\d+)\/([\w.-]+)\.png$/);

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fake Reddit (Toolize feed tests)</title>
+  <style>shreddit-feed, shreddit-post-related, reddit-sidebar-nav { display: block; }</style>
+</head>
+<body>
+  <!-- Feed rules only reach these light-DOM containers, not shadow-root internals. -->
+  <reddit-sidebar-nav>
+    <a href="/r/popular" id="popular-link">Popular</a>
+    <a href="/r/all/" id="all-link">All</a>
+    <a href="/r/woodworking" id="subreddit-link">Woodworking</a>
+  </reddit-sidebar-nav>
+  <div aria-label="Recent communities" id="recent-communities">Recent communities</div>
+  <div aria-label="Popular communities" id="popular-communities">Popular communities</div>
+  <main id="main-content">
+    <shreddit-feed id="feed">Home or subreddit feed</shreddit-feed>
+    <div id="siteTable">Old Reddit feed</div>
+    <article id="post">A post</article>
+    <div id="comment-tree">Comments</div>
+    <div id="more-posts">More posts after comments</div>
+    <shreddit-post-related id="related-posts">Related posts</shreddit-post-related>
+    <div slot="post-recommendations" id="recommendations">Post recommendations</div>
+  </main>
+  <aside id="right-sidebar-container">Community recommendations</aside>
+</body>
+</html>

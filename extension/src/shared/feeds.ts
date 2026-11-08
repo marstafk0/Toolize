@@ -1,4 +1,9 @@
 import facebook from '../../sites/facebook.json';
+import instagram from '../../sites/instagram.json';
+import linkedin from '../../sites/linkedin.json';
+import reddit from '../../sites/reddit.json';
+import tiktok from '../../sites/tiktok.json';
+import x from '../../sites/x.json';
 import youtube from '../../sites/youtube.json';
 
 /**
@@ -29,7 +34,7 @@ export interface FeedSite {
   toggles: FeedToggle[];
 }
 
-export const CATALOG: FeedSite[] = [youtube, facebook];
+export const CATALOG: FeedSite[] = [youtube, facebook, x, reddit, instagram, linkedin, tiktok];
 
 /** Settings key for a toggle, e.g. "youtube.home". */
 export const feedKey = (site: FeedSite, toggle: FeedToggle): string => `${site.id}.${toggle.id}`;

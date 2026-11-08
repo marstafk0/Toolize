@@ -1,0 +1,31 @@
+{
+  "id": "tiktok",
+  "name": "TikTok",
+  "hosts": ["tiktok.com"],
+  "toggles": [
+    {
+      "id": "foryou",
+      "label": "For You feed",
+      "hint": "For You on the home page. TikTok without the feed is mostly search and profiles. Selectors unverified against a logged-in account.",
+      "paths": "^/(foryou/?|en/?)?(\\?.*)?$",
+      "hide": ["[data-e2e=\"recommend-list-item-container\"]", "#main-content-homepage_hot", "[class*=\"DivVideoFeedV2\"]"],
+      "notice": {
+        "at": "main",
+        "text": "For You feed hidden by Toolize. Search or visit a profile."
+      }
+    },
+    {
+      "id": "explore",
+      "label": "Explore",
+      "hint": "The Explore grid and its navigation link. Selectors unverified against a logged-in account.",
+      "hide": ["#main-content-explore_page", "[data-e2e=\"explore-item\"]", "a[href=\"/explore\"]"]
+    },
+    {
+      "id": "live",
+      "label": "LIVE",
+      "hint": "The LIVE tab and viewer. LIVE links go to the home page. Selectors unverified against a logged-in account.",
+      "hide": ["a[href=\"/live\"]", "#main-content-live"],
+      "redirect": { "from": "^/live(/[^?]*)?(\\?.*)?$", "to": "/" }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "instagram",
+  "name": "Instagram",
+  "hosts": ["instagram.com"],
+  "toggles": [
+    {
+      "id": "home",
+      "label": "Home feed",
+      "hint": "The home feed. Direct messages, Explore, profiles and individual posts still work. Selectors unverified against a logged-in account.",
+      "paths": "^/(\\?.*)?$",
+      "hide": ["main[role=\"main\"] > div > div:first-child article", "section > main > div"],
+      "notice": {
+        "at": "main[role=\"main\"]",
+        "text": "Home feed hidden by Toolize. Visit a profile or open your messages."
+      }
+    },
+    {
+      "id": "explore",
+      "label": "Explore",
+      "hint": "Explore links go to the home page. Selectors unverified against a logged-in account.",
+      "hide": ["a[href=\"/explore/\"]"],
+      "redirect": { "from": "^/explore(/[^?]*)?(\\?.*)?$", "to": "/" }
+    },
+    {
+      "id": "reels",
+      "label": "Reels",
+      "hint": "The Reels tab is hidden and the Reels viewer goes to the home page. Selectors unverified against a logged-in account.",
+      "hide": ["a[href=\"/reels/\"]"],
+      "redirect": { "from": "^/reels(/[^?]*)?(\\?.*)?$", "to": "/" }
+    },
+    {
+      "id": "stories",
+      "label": "Stories",
+      "hint": "Best effort hiding of the stories tray at the top of home. Selectors unverified against a logged-in account.",
+      "paths": "^/(\\?.*)?$",
+      "hide": ["main section:first-of-type [role=\"presentation\"] ul", "section > main > section > div:first-child"]
+    }
+  ]
+}

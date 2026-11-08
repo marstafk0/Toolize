@@ -112,7 +112,12 @@ about what each tier actually guarantees.
   (home, Shorts + `/shorts/ID` → `/watch?v=ID`, recommendations, comments, end screens)
   and Facebook (news feed = the whole `div[role=main]` on the home path, since its inner
   markup is obfuscated; stories, reels, video tab — unverified against a logged-in
-  account). Still to come: X, Reddit, Instagram, LinkedIn, TikTok.
+  account); X / Twitter (home timeline, Explore, sidebar suggestions); Reddit (home,
+  Popular/All and front-page sort feeds, sidebar suggestions, related posts);
+  Instagram (home, Explore/Reels links go home, stories); LinkedIn (home feed, news);
+  TikTok (For You, Explore, LIVE links go home). New-site selectors are unverified
+  against logged-in accounts; Reddit feed rules hide light-DOM containers only and
+  cannot pierce shadow roots. TikTok without the feed is mostly search and profiles.
 - **Word filter** (`wordFilter`, on by default; `blockedWords` = the user's extras on
   top of `DEFAULT_WORDS` in shared/words.ts): a page whose address or title has a
   blocked word goes to the blocked page (covers searches); on YouTube, tiles whose
@@ -335,8 +340,9 @@ Toolize/                      # repo root (the product is "Toolize")
    still to come behind the same `IUnlockProvider`.
 5. ✅ **Enforcement.** Policy keys, force-install, incognito off, watchdog, unmanaged
    browser handling, uninstall requires unlock, fail-safe states.
-6. **Feed toggles** + sites catalog + lock-aware popup/GUI. ✅ YouTube + Facebook,
-   YouTube comment modes, comment-bot shield. X/Reddit/Instagram/LinkedIn/TikTok next.
+6. **Feed toggles** + sites catalog + lock-aware popup/GUI. ✅ YouTube, Facebook,
+   X/Reddit/Instagram/LinkedIn/TikTok, YouTube comment modes, comment-bot shield.
+   New-site selectors still need verification against logged-in accounts.
 7. **Beyond the browser** (optional, decide later): local DNS filtering with DoH
    blocked, and screen-level classification for native apps via Windows Graphics
    Capture + ONNX Runtime.

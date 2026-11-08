@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fake Instagram (Toolize feed tests)</title>
+</head>
+<body>
+  <nav>
+    <a href="/explore/" id="explore-link">Explore</a>
+    <a href="/reels/" id="reels-link">Reels</a>
+    <a href="/direct/inbox/" id="messages-link">Messages</a>
+  </nav>
+  <!-- Reuse feed-shaped markup on post/profile routes to catch overly broad rules. -->
+  <section>
+    <main role="main" id="main">
+      <h1 id="page-title">Home, profile or individual post</h1>
+      <div id="feed-container"><div><article id="feed-post">Feed or individual post</article></div></div>
+      <section>
+        <div id="stories-container"><div role="presentation"><ul id="stories"><li>A story</li></ul></div></div>
+        <div id="profile-content">Profile details or messages</div>
+      </section>
+    </main>
+  </section>
+</body>
+</html>

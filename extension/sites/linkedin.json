@@ -1,0 +1,24 @@
+{
+  "id": "linkedin",
+  "name": "LinkedIn",
+  "hosts": ["linkedin.com"],
+  "toggles": [
+    {
+      "id": "home",
+      "label": "Home feed",
+      "hint": "The home feed. Messaging, jobs, profiles and search still work. Selectors unverified against a logged-in account.",
+      "paths": "^/(feed/?)?(\\?.*)?$",
+      "hide": [".scaffold-finite-scroll", "main .feed-shared-update-v2", "#voyager-feed", ".core-rail > div:not(:first-child)"],
+      "notice": {
+        "at": "main",
+        "text": "Home feed hidden by Toolize. Visit a profile, search or find a job."
+      }
+    },
+    {
+      "id": "news",
+      "label": "LinkedIn News",
+      "hint": "LinkedIn News and the right rail. Selectors unverified against a logged-in account.",
+      "hide": [".news-module", "aside.scaffold-layout__aside"]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "reddit",
+  "name": "Reddit",
+  "hosts": ["reddit.com"],
+  "toggles": [
+    {
+      "id": "home",
+      "label": "Home and popular feeds",
+      "hint": "The front page, Popular, All and front-page sort feeds. Subreddits, posts, comments and search stay. Only light-DOM containers are hidden; feed CSS cannot pierce shadow roots. Selectors unverified against a logged-in account.",
+      "paths": "^/(r/(popular|all)/?|(best|hot|new|top|rising)/?)?(\\?.*)?$",
+      "hide": ["shreddit-feed", "#main-content shreddit-feed", "#siteTable"],
+      "notice": {
+        "at": "#main-content",
+        "text": "Home feed hidden by Toolize. Visit a subreddit or search for what you came for."
+      }
+    },
+    {
+      "id": "sidebar",
+      "label": "Sidebar suggestions",
+      "hint": "The right sidebar, recent/popular communities and Popular/All navigation entries. Only light-DOM containers are hidden; feed CSS cannot pierce shadow roots. Selectors unverified against a logged-in account.",
+      "hide": [
+        "#right-sidebar-container",
+        "[aria-label=\"Recent communities\" i]",
+        "[aria-label=\"Popular communities\" i]",
+        "reddit-sidebar-nav a[href=\"/r/popular\"]",
+        "reddit-sidebar-nav a[href=\"/r/popular/\"]",
+        "reddit-sidebar-nav a[href=\"/r/all\"]",
+        "reddit-sidebar-nav a[href=\"/r/all/\"]"
+      ]
+    },
+    {
+      "id": "related",
+      "label": "Related posts",
+      "hint": "Related and more-post recommendations on post pages. The post and comments stay. Only light-DOM containers are hidden; feed CSS cannot pierce shadow roots. Selectors unverified against a logged-in account.",
+      "paths": "^/(r/[^/]+/)?comments/[^/?]+(/[^?]*)?(\\?.*)?$",
+      "hide": ["shreddit-post-related", "[slot=\"post-recommendations\"]", "#comment-tree + *"]
+    }
+  ]
+}

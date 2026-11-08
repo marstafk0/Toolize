@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Fake X (Toolize feed tests)</title>
+</head>
+<body>
+  <!-- Same regions on every route: path guards must preserve profiles and posts. -->
+  <nav><a href="/explore" id="explore-link">Explore</a></nav>
+  <div data-testid="primaryColumn" id="primary">
+    <h1 id="page-title">Timeline, profile or post</h1>
+    <div aria-label="Timeline: Your Home Timeline" id="home-timeline">For you / Following</div>
+    <section role="region" id="timeline-region">Timeline or Explore content</section>
+  </div>
+  <div data-testid="sidebarColumn">
+    <input aria-label="Search" id="sidebar-search" />
+    <div aria-label="Timeline: Trending now" id="trends">Trending now</div>
+    <aside aria-label="Who to follow" id="who-to-follow">Who to follow</aside>
+  </div>
+</body>
+</html>

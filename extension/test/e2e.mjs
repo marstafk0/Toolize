@@ -488,18 +488,18 @@ try {
   await waitFor(async () => sw.evaluate(async () =>
     !(await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
     !(await chrome.declarativeNetRequest.getDynamicRules()).length));
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
   check('master disable lets a learned host load', !learnPage.url().includes('/blocked/'), learnPage.url());
   const listedPage = await context.newPage();
   // Real list membership, independent of the development-only test URL rule.
-  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await listedPage.goto(`http://pornhub.com:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
   check('master disable lets a listed adult host load', !listedPage.url().includes('/blocked/'), listedPage.url());
   await setSettings({ enabled: true });
   await waitFor(async () => sw.evaluate(async () =>
     (await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
     (await chrome.declarativeNetRequest.getDynamicRules()).some((r) => r.condition.requestDomains?.includes('learn.test'))));
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await listedPage.goto(`http://pornhub.com:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('re-enable blocks both learned and listed hosts again',
     onBlockedPage(learnPage, 'images')() && listedPage.url().includes('/blocked/'), `${learnPage.url()} | ${listedPage.url()}`);
   await listedPage.close();
@@ -676,6 +676,174 @@ try {
   check('a reel link goes to the home page with Reels hidden', new URL(fb.url()).pathname === '/', fb.url());
   await setSettings({ feeds: {} });
   await fb.close();
+
+  // Match the real hosts too: *.test alone would miss a catalog host typo.
+  for (const dev of [true, false]) {
+    const tmp = join(artifacts, `feeds-${dev ? 'dev' : 'prod'}.mjs`);
+    await esbuild.build({
+      entryPoints: [join(root, 'src/shared/feeds.ts')], outfile: tmp, bundle: true,
+      format: 'esm', define: { __DEV__: String(dev) }, logLevel: 'silent',
+    });
+    const { siteForHost } = await import(pathToFileURL(tmp).href);
+    const hosts = {
+      'x.com': 'x', 'twitter.com': 'x', 'mobile.twitter.com': 'x',
+      'www.reddit.com': 'reddit', 'old.reddit.com': 'reddit',
+      'www.instagram.com': 'instagram', 'www.linkedin.com': 'linkedin', 'www.tiktok.com': 'tiktok',
+    };
+    const wrong = Object.entries(hosts).filter(([host, site]) => siteForHost(host)?.id !== site);
+    const sites = ['x', 'reddit', 'instagram', 'linkedin', 'tiktok'];
+    const testHosts = sites.every((site) => siteForHost(`${site}.test`)?.id === (dev ? site : undefined));
+    const lookalikes = ['notx.com', 'notreddit.com', 'twitter.com.example.org', 'instagram.com.example.org', 'linkedin.com.example.org', 'tiktok.com.example.org'];
+    check(`feed catalog matches real hosts and subdomains (${dev ? 'dev' : 'production'})`, wrong.length === 0, JSON.stringify(wrong));
+    check(`feed test hosts are dev-only and lookalikes do not match (${dev ? 'dev' : 'production'})`,
+      testHosts && lookalikes.every((host) => !siteForHost(host)));
+  }
+
+  // The fixtures deliberately reuse feed-shaped light DOM on non-feed routes. Test
+  // each setting on its own, including inherited visibility when a container hides.
+  const feedCases = [
+    {
+      key: 'x.home', paths: ['/home?view=following', '/?view=for-you'],
+      hidden: ['#home-timeline', '#timeline-region'], visible: ['#page-title', '#trends', '#sidebar-search'],
+      safe: ['/someone', '/someone/status/123', '/status/123', '/search?q=woodworking', '/notifications', '/messages', '/explore'],
+      notice: '#primary',
+    },
+    {
+      key: 'x.explore', paths: ['/explore?tab=trending', '/explore/tabs/for-you'],
+      hidden: ['#timeline-region', '#trends', '#who-to-follow', '#explore-link'], visible: ['#page-title', '#sidebar-search'],
+      safe: ['/home', '/someone/status/123'],
+    },
+    {
+      key: 'x.sidebar', paths: ['/home', '/explore', '/someone/status/123'],
+      hidden: ['#trends', '#who-to-follow'], visible: ['#home-timeline', '#timeline-region', '#page-title', '#sidebar-search', '#explore-link'],
+      safe: ['/someone'],
+    },
+    {
+      key: 'reddit.home', paths: ['/', '/r/popular', '/r/all/?t=day', '/best', '/hot', '/new', '/top?t=week', '/rising'],
+      hidden: ['#feed', '#siteTable'], visible: ['#post', '#comment-tree', '#right-sidebar-container'],
+      safe: ['/r/woodworking', '/r/x/comments/123/a-post', '/comments/123/a-post', '/search/?q=woodworking'],
+      notice: '#main-content',
+    },
+    {
+      key: 'reddit.sidebar', paths: ['/'],
+      hidden: ['#right-sidebar-container', '#recent-communities', '#popular-communities', '#popular-link', '#all-link'],
+      visible: ['#feed', '#post', '#comment-tree', '#subreddit-link'], safe: ['/r/woodworking', '/r/x/comments/123/a-post'],
+    },
+    {
+      key: 'reddit.related', paths: ['/r/x/comments/123/a-post?sort=top', '/comments/123/a-post'],
+      hidden: ['#related-posts', '#recommendations', '#more-posts'], visible: ['#post', '#comment-tree', '#feed'],
+      safe: ['/', '/r/woodworking', '/search/?q=woodworking'],
+    },
+    {
+      key: 'instagram.home', paths: ['/?source=home'], hidden: ['#feed-container', '#feed-post'],
+      visible: ['#stories', '#profile-content', '#messages-link'],
+      safe: ['/direct/inbox/', '/explore/', '/someone/', '/p/abc/'], notice: '#main',
+    },
+    {
+      key: 'instagram.explore', paths: ['/'], hidden: ['#explore-link'],
+      visible: ['#feed-post', '#stories', '#messages-link'], safe: ['/p/abc/'],
+      redirects: ['/explore', '/explore/', '/explore/tags/woodworking/?source=nav'],
+    },
+    {
+      key: 'instagram.reels', paths: ['/'], hidden: ['#reels-link'],
+      visible: ['#feed-post', '#stories', '#messages-link'], safe: ['/p/abc/', '/someone/'],
+      redirects: ['/reels', '/reels/', '/reels/abc/?source=nav'],
+    },
+    {
+      key: 'instagram.stories', paths: ['/?source=home'], hidden: ['#stories', '#stories-container'],
+      visible: ['#feed-post', '#profile-content', '#messages-link'], safe: ['/p/abc/', '/direct/inbox/', '/someone/'],
+    },
+    {
+      key: 'linkedin.home', paths: ['/feed/', '/?trk=home', '/feed?trk=nav'],
+      hidden: ['#feed', '#update', '#voyager-feed', '#rail-feed'], visible: ['#composer', '#news', '#messages-link', '#jobs-link'],
+      safe: ['/in/someone/', '/messaging/', '/jobs/', '/search/', '/feed-news/'], notice: '#main',
+    },
+    {
+      key: 'linkedin.news', paths: ['/feed/'], hidden: ['#news', '#right-rail'],
+      visible: ['#feed', '#update', '#composer', '#messages-link', '#jobs-link'], safe: ['/in/someone/'],
+    },
+    {
+      key: 'tiktok.foryou', paths: ['/', '/foryou', '/en/', '/foryou/?lang=en'],
+      hidden: ['#recommend-item', '#main-content-homepage_hot', '#video-feed'], visible: ['#page-title', '#profile-link', '#explore-link'],
+      safe: ['/@user', '/@user/video/123', '/search?q=woodworking', '/explore'], notice: '#main',
+    },
+    {
+      key: 'tiktok.explore', paths: ['/explore'], hidden: ['#main-content-explore_page', '#explore-item', '#explore-link'],
+      visible: ['#recommend-item', '#page-title', '#profile-link'], safe: ['/@user', '/@user/video/123'],
+    },
+    {
+      key: 'tiktok.live', paths: ['/'], hidden: ['#live-link', '#main-content-live'],
+      visible: ['#recommend-item', '#page-title', '#profile-link'], safe: ['/@user', '/@user/video/123'],
+      redirects: ['/live', '/live/', '/live/123?source=nav'],
+    },
+  ];
+  for (const c of feedCases) {
+    const site = c.key.split('.')[0];
+    const feedPage = await context.newPage();
+    const origin = `http://${site}.test:${PORT}`;
+    const feeds = { [c.key]: true };
+    const states = (selectors, visible) => feedPage.evaluate(({ selectors, visible }) => selectors.every((s) => {
+      const e = document.querySelector(s);
+      return !!e && e.checkVisibility() === visible;
+    }), { selectors, visible });
+    const go = async (path) => {
+      const response = await feedPage.goto(`${origin}${path}`, { waitUntil: 'domcontentloaded' });
+      if (response?.status() !== 200) throw new Error(`missing feed fixture: ${site}${path}`);
+      await feedPage.waitForFunction(() => !!document.querySelector('style[data-toolize="feeds"]'));
+    };
+    await setSettings({ enabled: true, feeds });
+    for (const path of c.paths) {
+      await go(path);
+      await waitFor(() => states(c.hidden, false), { timeout: 5000 });
+      check(`${c.key} hides its targets on ${path} and keeps other content`,
+        (await states(c.hidden, false)) && (await states(c.visible, true)));
+      if (c.notice) {
+        const notice = await feedPage.evaluate((s) => getComputedStyle(document.querySelector(s), '::before').content, c.notice);
+        check(`${c.key} shows a replacement notice on ${path}`, notice.includes('hidden by Toolize'), notice);
+      }
+    }
+    for (const path of c.safe) {
+      await go(path);
+      // Path-limited toggles must leave even matching feed markup alone here.
+      const pathLimited = ['x.home', 'x.explore', 'reddit.home', 'reddit.related', 'instagram.home', 'instagram.stories', 'linkedin.home', 'tiktok.foryou'].includes(c.key);
+      check(`${c.key} keeps non-feed content on ${path}`,
+        (await states(c.visible, true)) && (!pathLimited || (await states(c.hidden, true))));
+    }
+    // SPA navigation reuses the same DOM and must rebuild path-scoped rules.
+    if (c.notice) {
+      await feedPage.evaluate((path) => history.pushState({}, '', path), c.paths[0]);
+      await waitFor(() => states(c.hidden, false), { timeout: 5000 });
+      check(`${c.key} reapplies after SPA navigation to the feed`, await states(c.hidden, false));
+      await feedPage.evaluate((path) => history.pushState({}, '', path), c.safe[0]);
+      await waitFor(() => states(c.hidden, true), { timeout: 5000 });
+      const notice = await feedPage.evaluate((s) => getComputedStyle(document.querySelector(s), '::before').content, c.notice);
+      check(`${c.key} restores content and removes the notice after SPA navigation away`,
+        (await states(c.hidden, true)) && !notice.includes('hidden by Toolize'));
+    }
+    for (const path of c.redirects ?? []) {
+      await feedPage.goto(`${origin}${path}`, { waitUntil: 'domcontentloaded' });
+      await waitFor(() => feedPage.url() === `${origin}/`, { timeout: 5000 });
+      check(`${c.key} redirects ${path} to home`, feedPage.url() === `${origin}/`, feedPage.url());
+    }
+    await go(c.paths[0]);
+    await waitFor(() => states(c.hidden, false), { timeout: 5000 });
+    await setSettings({ feeds: {} });
+    await waitFor(() => states(c.hidden, true), { timeout: 5000 });
+    check(`${c.key} can be turned off independently`, await states([...c.hidden, ...c.visible], true));
+    await setSettings({ feeds });
+    await waitFor(() => states(c.hidden, false), { timeout: 5000 });
+    await setSettings({ enabled: false });
+    await waitFor(() => states(c.hidden, true), { timeout: 5000 });
+    check(`${c.key} shows everything when protection is off`, await states([...c.hidden, ...c.visible], true));
+    for (const path of c.redirects ?? []) {
+      await go(path);
+      // Allow the SPA poll time to run too; protection off must suppress redirects.
+      await feedPage.waitForTimeout(400);
+      check(`${c.key} leaves ${path} alone when protection is off`, feedPage.url() === `${origin}${path}`, feedPage.url());
+    }
+    await feedPage.close();
+  }
+  await setSettings({ enabled: true, feeds: {} });
 
   // ---- word filter: blocked words in an address or title; YouTube tiles and videos
   const wf = await context.newPage();

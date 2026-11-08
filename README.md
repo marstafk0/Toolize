@@ -27,7 +27,7 @@ Anyone with admin rights on a machine can defeat software running on it: they ca
 | 3 | Companion app: service, GUI, CLI, signed self-update | **done** |
 | 4 | USB unlock: flash-drive tier, recovery code | **done** |
 | 5 | Enforcement: force-install, policy, watchdog | **done** |
-| 6 | Feed toggles + sites catalog | **YouTube, Facebook done** |
+| 6 | Feed toggles + sites catalog | **YouTube, Facebook, X, Reddit, Instagram, LinkedIn, TikTok done** |
 | 7 | Beyond the browser: DNS filtering, screen classifier | — |
 
 FIDO2/YubiKey (the uncopyable unlock tier) slots in behind the same interface as the
@@ -47,10 +47,18 @@ Optional, per site, in the popup (under **Feeds**) or the desktop app. Hiding so
 
 - **YouTube:** home feed, Shorts (shelves, tab and sidebar entry; Shorts links open as normal videos), recommended videos, comments, end screens.
 - **Facebook:** news feed (the whole middle of the home page), stories, Reels (reel links go home), the video tab.
+- **X / Twitter:** home timeline (For you and Following), Explore, right-column trends and Who to follow. Search, notifications, messages, profiles and individual posts stay.
+- **Reddit:** home, Popular/All and front-page sort feeds, sidebar suggestions, related posts. Subreddits, posts, comments and search stay. Feed rules hide light-DOM containers only; their CSS cannot reach inside shadow roots.
+- **Instagram:** home feed, Explore and Reels (links go home), stories. Messages, profiles and individual posts stay.
+- **LinkedIn:** home feed, LinkedIn News/right rail. Messaging, jobs, profiles and search stay.
+- **TikTok:** For You, Explore, LIVE (links go home). TikTok without the feed is mostly search and profiles.
 - Turning protection off turns all of this off too.
 - **Comment bots**, whenever protection is on: big channels attract spam bots with explicit profile pictures and "look at my profile" comments that lead to porn. Commenter avatars are hidden, profile and outside links in comments can't be clicked (timestamps still work), and comments whose name or text look like that spam are removed, including names written in fancy Unicode fonts or lookalike letters.
 
 Feed rules live in `extension/sites/*.json`; a new site or a site redesign is a data change.
+The X, Reddit, Instagram, LinkedIn and TikTok selectors are tested against local
+light-DOM fixtures, but are unverified against logged-in accounts. Instagram Stories
+is best effort; these sites can change their markup.
 
 ## Extension: build & load
 

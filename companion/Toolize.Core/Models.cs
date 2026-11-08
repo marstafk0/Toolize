@@ -12,6 +12,8 @@ public sealed record StatusReport
     public IReadOnlyList<EnrolledKey> Keys { get; init; } = [];
     public EnforcementState Enforcement { get; init; } = new();
     public bool HasRecoveryCode { get; init; }
+    public int SettingsRevision { get; init; }
+    public DateTimeOffset SettingsChangedAt { get; init; }
     public IReadOnlyList<string> Notes { get; init; } = [];
 }
 
@@ -28,6 +30,8 @@ public sealed record LockState
     public string? KeyName { get; init; }
 }
 
+public sealed record BrowserStatus(string Name, string Version, DateTimeOffset LastSeen);
+
 public sealed record ExtensionState
 {
     public bool Connected { get; init; }
@@ -40,6 +44,7 @@ public sealed record ExtensionState
     /// "brave (dev build)" for anything else. The watchdog judges each one separately.
     /// </summary>
     public IReadOnlyList<string> Browsers { get; init; } = [];
+    public IReadOnlyList<BrowserStatus> ConnectedBrowsers { get; init; } = [];
 }
 
 /// <summary>What enforcement is doing right now, for the GUI and doctor.</summary>
@@ -74,6 +79,8 @@ public sealed record EnrollKeyArgs(string Drive, string Name);
 public sealed record RevokeKeyArgs(string Id);
 
 public sealed record RecoverArgs(string Code);
+
+public sealed record WatchSettingsArgs(int? Revision = null);
 
 /// <summary>Browser is "chrome", "edge" or "brave"; null from extensions older than 0.5.3.</summary>
 /// <param name="ExtensionId">Set by the native host from what Chrome reports, never by the extension.</param>

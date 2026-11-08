@@ -12,6 +12,12 @@ namespace Toolize.Service;
 /// </summary>
 public sealed class PipeServer(string pipeName, RequestHandler handler, ILogger<PipeServer> log)
 {
+    public const int MaxLineLength = 256 * 1024;
+    public const int MaxConcurrentHandlers = 64;
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(10);
+
+    private readonly SemaphoreSlim _slots = new(MaxConcurrentHandlers, MaxConcurrentHandlers);
+
     public async Task RunAsync(CancellationToken ct)
     {
         log.LogInformation("listening on \\\\.\\pipe\\{Pipe}", pipeName);
@@ -40,36 +46,84 @@ public sealed class PipeServer(string pipeName, RequestHandler handler, ILogger<
 
     private async Task ServeAsync(NamedPipeServerStream pipe, CancellationToken ct)
     {
+        var acquired = false;
         try
         {
-            using var reader = new StreamReader(pipe, leaveOpen: true);
             await using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
 
-            var line = await reader.ReadLineAsync(ct);
+            acquired = await _slots.WaitAsync(0, ct);
+            if (!acquired)
+            {
+                var busy = Response.Failure("?", "too many concurrent requests", "busy");
+                await writer.WriteLineAsync(JsonSerializer.Serialize(busy, Protocol.Json));
+                return;
+            }
+
+            using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            readCts.CancelAfter(ReadTimeout);
+
+            string? line;
+            try
+            {
+                line = await ReadBoundedLineAsync(pipe, MaxLineLength, readCts.Token);
+            }
+            catch (InvalidDataException ex)
+            {
+                var tooLong = Response.Failure("?", ex.Message, "bad-request");
+                await writer.WriteLineAsync(JsonSerializer.Serialize(tooLong, Protocol.Json));
+                return;
+            }
             if (line is null) return;
 
             Response response;
+            Request? request = null;
             try
             {
-                var request = JsonSerializer.Deserialize<Request>(line, Protocol.Json)
-                              ?? throw new InvalidOperationException("empty request");
-                response = await handler.HandleAsync(request, ct);
+                request = JsonSerializer.Deserialize<Request>(line, Protocol.Json)
+                          ?? throw new InvalidOperationException("empty request");
+                // watch-settings is a long-poll read verb and is exempt from the 10 s
+                // per-connection timeout once its request line has been read.
+                var handleToken = request.Verb == Verbs.WatchSettings ? ct : readCts.Token;
+                response = await handler.HandleAsync(request, handleToken);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 log.LogWarning(ex, "bad request");
-                response = Response.Failure("?", ex.Message, "bad-request");
+                response = Response.Failure(request?.Id ?? "?", ex.Message, "bad-request");
             }
 
             await writer.WriteLineAsync(JsonSerializer.Serialize(response, Protocol.Json));
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException)
         {
-            // Client hung up. Normal.
+            // Client hung up or read timed out. Normal.
         }
         finally
         {
+            if (acquired) _slots.Release();
             await pipe.DisposeAsync();
+        }
+    }
+
+    public static async Task<string?> ReadBoundedLineAsync(Stream stream, int maxBytes, CancellationToken ct)
+    {
+        var bytes = new List<byte>(256);
+        var buf = new byte[1];
+        var any = false;
+        while (true)
+        {
+            var n = await stream.ReadAsync(buf.AsMemory(0, 1), ct);
+            if (n == 0) return any ? System.Text.Encoding.UTF8.GetString(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(bytes)) : null;
+            any = true;
+            var b = buf[0];
+            if (b == (byte)'\n')
+            {
+                if (bytes.Count > 0 && bytes[^1] == (byte)'\r') bytes.RemoveAt(bytes.Count - 1);
+                return System.Text.Encoding.UTF8.GetString(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(bytes));
+            }
+            if (bytes.Count >= maxBytes)
+                throw new InvalidDataException($"request line exceeds {maxBytes} bytes");
+            bytes.Add(b);
         }
     }
 }

@@ -122,3 +122,149 @@ public sealed class StateStoreTests : IDisposable
         Assert.False(store.UseRecoveryCode(code)); // burned
     }
 }
+
+public sealed class ExtensionTrackerAndRevisionTests
+{
+    [Fact]
+    public void Heartbeats_from_multiple_browsers_sum_counters_and_track_each_browser()
+    {
+        var tracker = new Toolize.Service.ExtensionTracker();
+        var storeId = Toolize.Service.AppInfo.StoreExtensionId;
+
+        tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", Blocked: 4, Checked: 100, Browser: "chrome", ExtensionId: storeId));
+        tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", Blocked: 7, Checked: 250, Browser: "brave", ExtensionId: "devid123"));
+
+        var state = tracker.State;
+        Assert.True(state.Connected);
+        Assert.Equal(11, state.Blocked);
+        Assert.Equal(350, state.Checked);
+        Assert.Equal(["brave (dev build)", "chrome"], state.Browsers);
+        Assert.Equal(2, state.ConnectedBrowsers.Count);
+
+        // Next Chrome heartbeat updates Chrome's entry without wiping Brave's.
+        tracker.Heartbeat(new ExtensionHeartbeatArgs("0.9.0", Blocked: 6, Checked: 120, Browser: "chrome", ExtensionId: storeId));
+        state = tracker.State;
+        Assert.Equal(13, state.Blocked);
+        Assert.Equal(370, state.Checked);
+
+        // IsConnected requires an explicit browser match (no empty-browser wildcard).
+        Assert.True(tracker.IsConnected("chrome", storeId));
+        Assert.False(tracker.IsConnected("edge", storeId));
+        tracker.Hello("0.9.0", null, storeId);
+        Assert.False(tracker.IsConnected("edge", storeId));
+    }
+
+    [Fact]
+    public async Task Watch_returns_immediately_when_behind_and_wakes_on_settings_change()
+    {
+        var tracker = new Toolize.Service.ExtensionTracker();
+        var initial = tracker.Revision;
+        Assert.Equal(1, initial);
+
+        // Behind revision -> returns immediately.
+        var behind = await tracker.WatchAsync(0, CancellationToken.None, TimeSpan.FromSeconds(5));
+        Assert.True(behind.Accepted);
+        Assert.Equal(initial, behind.Revision);
+
+        // Caught up -> holds until SettingsChanged() bumps the revision.
+        var watchTask = tracker.WatchAsync(initial, CancellationToken.None, TimeSpan.FromSeconds(5));
+        Assert.False(watchTask.IsCompleted);
+
+        var next = tracker.SettingsChanged();
+        var held = await watchTask;
+        Assert.True(held.Accepted);
+        Assert.Equal(next, held.Revision);
+        Assert.Equal(2, held.Revision);
+    }
+
+    [Fact]
+    public async Task Watch_returns_current_revision_when_hold_times_out_and_caps_watchers()
+    {
+        var tracker = new Toolize.Service.ExtensionTracker();
+        var rev = tracker.Revision;
+
+        var timedOut = await tracker.WatchAsync(rev, CancellationToken.None, TimeSpan.FromMilliseconds(30));
+        Assert.True(timedOut.Accepted);
+        Assert.Equal(rev, timedOut.Revision);
+
+        // Cap at MaxWatchers (16).
+        using var cts = new CancellationTokenSource();
+        var tasks = Enumerable.Range(0, Toolize.Service.ExtensionTracker.MaxWatchers)
+            .Select(_ => tracker.WatchAsync(rev, cts.Token, TimeSpan.FromSeconds(10)))
+            .ToList();
+        Assert.Equal(Toolize.Service.ExtensionTracker.MaxWatchers, tracker.ActiveWatchers);
+
+        var overflow = await tracker.WatchAsync(rev, CancellationToken.None, TimeSpan.FromSeconds(1));
+        Assert.False(overflow.Accepted);
+
+        tracker.SettingsChanged();
+        await Task.WhenAll(tasks);
+        Assert.Equal(0, tracker.ActiveWatchers);
+    }
+
+    [Fact]
+    public async Task ReadBoundedLine_enforces_maximum_length()
+    {
+        using var okStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("{\"verb\":\"status\"}\r\n"));
+        var line = await Toolize.Service.PipeServer.ReadBoundedLineAsync(okStream, 64, CancellationToken.None);
+        Assert.Equal("{\"verb\":\"status\"}", line);
+
+        using var bigStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(new string('x', 100) + "\n"));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            Toolize.Service.PipeServer.ReadBoundedLineAsync(bigStream, 32, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task PipeServer_holds_watch_settings_without_blocking_other_clients_and_pushes_on_change()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "toolize-pipe-test-" + Guid.NewGuid().ToString("n")[..8]);
+        var pipeName = "toolize-test-" + Guid.NewGuid().ToString("n")[..8];
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var store = new StateStore(tempDir);
+            var locks = new Toolize.Service.LockService();
+            var tracker = new Toolize.Service.ExtensionTracker();
+            var unlock = new Toolize.Service.UnlockService(store, locks, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UnlockService>.Instance, tracker);
+            var enforcement = new Toolize.Service.EnforcementService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.EnforcementService>.Instance, dev: true);
+            var watchdog = new Toolize.Service.WatchdogService(store, tracker, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.WatchdogService>.Instance, dev: true);
+            var updates = new Toolize.Service.UpdateService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UpdateService>.Instance);
+            var doctor = new Toolize.Service.DoctorService(store, tracker, locks, enforcement);
+            var handler = new Toolize.Service.RequestHandler(store, locks, unlock, enforcement, watchdog, updates, tracker, doctor, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.RequestHandler>.Instance);
+            var server = new Toolize.Service.PipeServer(pipeName, handler, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.PipeServer>.Instance);
+
+            var serverTask = server.RunAsync(cts.Token);
+            var client = new PipeClient(pipeName);
+
+            // 1. Hello returns initial revision 1.
+            var hello = await client.SendAsync(Verbs.ExtensionHello, new ExtensionHelloArgs("0.9.0", "chrome", "id1"), cts.Token);
+            Assert.True(hello.Ok);
+            Assert.Equal(1, hello.Data!.Value.GetProperty("revision").GetInt32());
+
+            // 2. Start a long-poll watch-settings with revision 1; it should hold.
+            var watchTask = client.SendAsync(Verbs.WatchSettings, new WatchSettingsArgs(1), cts.Token);
+            await Task.Delay(100, cts.Token);
+            Assert.False(watchTask.IsCompleted);
+
+            // 3. Another client call (status) succeeds while watch-settings is held.
+            var status = await client.SendAsync(Verbs.Status, null, cts.Token);
+            Assert.True(status.Ok);
+
+            // 4. Changing settings bumps the revision and wakes watchTask immediately.
+            var setResp = await client.SendAsync(Verbs.SetSettings, new SetSettingsArgs(Settings.Default with { Preset = Preset.Strict }), cts.Token);
+            Assert.True(setResp.Ok);
+
+            var watchResp = await watchTask;
+            Assert.True(watchResp.Ok);
+            Assert.Equal(2, watchResp.Data!.Value.GetProperty("revision").GetInt32());
+            Assert.Equal("strict", watchResp.Data!.Value.GetProperty("settings").GetProperty("preset").GetString());
+
+            cts.Cancel();
+            await serverTask;
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+}

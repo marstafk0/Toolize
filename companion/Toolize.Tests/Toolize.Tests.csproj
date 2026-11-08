@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Toolize.Core\Toolize.Core.csproj" />
+    <ProjectReference Include="..\Toolize.Service\Toolize.Service.csproj" />
   </ItemGroup>
 
 </Project>

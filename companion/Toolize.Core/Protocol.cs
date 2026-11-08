@@ -78,6 +78,8 @@ public static class Verbs
     public const string ExtensionHello = "extension-hello";
     /// <summary>Extension liveness ping plus per-tab counters.</summary>
     public const string ExtensionHeartbeat = "extension-heartbeat";
+    /// <summary>Long-poll for settings changes; returns immediately when the caller's revision is behind.</summary>
+    public const string WatchSettings = "watch-settings";
     /// <summary>
     /// The extension asking leave for a weakening change that lives on its side (e.g.
     /// unblocking a site it learned). Answered like any weakening verb: allowed only

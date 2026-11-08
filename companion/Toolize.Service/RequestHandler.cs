@@ -43,6 +43,7 @@ public sealed class RequestHandler(
                 Verbs.IssueRecovery => Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() }),
                 Verbs.ExtensionHello => ExtensionHello(request),
                 Verbs.ExtensionHeartbeat => ExtensionHeartbeat(request),
+                Verbs.WatchSettings => await WatchSettingsAsync(request, ct),
                 Verbs.AuthorizeWeakening => AuthorizeWeakening(request),
                 _ => Response.Failure(request.Id, $"unknown verb '{request.Verb}'", "unknown-verb"),
             };
@@ -70,6 +71,8 @@ public sealed class RequestHandler(
             Watchdog = watchdog.Status,
         },
         HasRecoveryCode = store.HasRecoveryCode,
+        SettingsRevision = extension.Revision,
+        SettingsChangedAt = extension.SettingsChangedAt,
         Notes = store.Notes.TakeLast(20).ToList(),
     };
 
@@ -109,6 +112,7 @@ public sealed class RequestHandler(
             return Response.Failure(request.Id, "channel must be 'stable' or 'dev'", "bad-request");
         store.SetChannel(channel);
         store.Note($"channel set to {channel}");
+        extension.SettingsChanged();
         return Response.Success(request.Id, await updates.CheckAsync(ct));
     }
 
@@ -185,13 +189,25 @@ public sealed class RequestHandler(
         var args = request.ArgsAs<ExtensionHelloArgs>();
         extension.Hello(args?.Version, args?.Browser, args?.ExtensionId);
         log.LogInformation("extension {Version} connected from {Browser}", args?.Version, args?.Browser ?? "an unknown browser");
-        return Response.Success(request.Id, new { settings = store.Settings, service = AppInfo.Version, enforced = store.Settings.Enforce });
+        var settings = store.Settings;
+        return Response.Success(request.Id, new { settings, service = AppInfo.Version, enforced = settings.Enforce, revision = extension.Revision });
     }
 
     private Response ExtensionHeartbeat(Request request)
     {
         var args = request.ArgsAs<ExtensionHeartbeatArgs>();
         if (args is not null) extension.Heartbeat(args);
-        return Response.Success(request.Id, new { settings = store.Settings, enforced = store.Settings.Enforce });
+        var settings = store.Settings;
+        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, revision = extension.Revision });
+    }
+
+    private async Task<Response> WatchSettingsAsync(Request request, CancellationToken ct)
+    {
+        var args = request.ArgsAs<WatchSettingsArgs>();
+        var (accepted, revision) = await extension.WatchAsync(args?.Revision, ct);
+        if (!accepted)
+            return Response.Failure(request.Id, "too many settings watchers", "busy");
+        var settings = store.Settings;
+        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, revision });
     }
 }

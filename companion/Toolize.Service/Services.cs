@@ -29,19 +29,40 @@ public sealed class LockService
     public void Update(LockState state) => State = state;
 }
 
-/// <summary>Tracks the browser extension's heartbeat so the GUI can show whether it's alive.</summary>
+/// <summary>Tracks the browser extension's heartbeat and pushes settings revisions to watchers.</summary>
 public sealed class ExtensionTracker
 {
+    public const int MaxWatchers = 16;
+    private static readonly TimeSpan Stale = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DefaultHold = TimeSpan.FromSeconds(25);
+
+    private sealed record Entry(string? Version, int Blocked, int Checked, DateTimeOffset LastSeen);
+
     private readonly object _gate = new();
-    private ExtensionState _state = new();
     /// <summary>
     /// Last check-in per (browser, extension id). Browser "" is an extension too old to
     /// say which; id "" means the native host couldn't tell.
     /// </summary>
-    private readonly Dictionary<(string Browser, string Id), DateTimeOffset> _seen = new();
+    private readonly Dictionary<(string Browser, string Id), Entry> _seen = new();
+    private TaskCompletionSource<int> _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _revision = 1;
+    private int _watchers;
+    private DateTimeOffset _settingsChangedAt = DateTimeOffset.UtcNow;
 
-    /// <summary>Extension counts as connected only if it checked in recently.</summary>
-    private static readonly TimeSpan Stale = TimeSpan.FromSeconds(90);
+    public int Revision
+    {
+        get { lock (_gate) return _revision; }
+    }
+
+    public DateTimeOffset SettingsChangedAt
+    {
+        get { lock (_gate) return _settingsChangedAt; }
+    }
+
+    public int ActiveWatchers
+    {
+        get { lock (_gate) return _watchers; }
+    }
 
     public ExtensionState State
     {
@@ -49,15 +70,34 @@ public sealed class ExtensionTracker
         {
             lock (_gate)
             {
-                var live = _state.LastSeen is { } seen && Fresh(seen);
-                var browsers = _seen
-                    .Where(p => p.Key.Browser != "" && Fresh(p.Value))
-                    .Select(p => p.Key.Id == AppInfo.StoreExtensionId ? p.Key.Browser : $"{p.Key.Browser} (dev build)")
-                    .Distinct().Order().ToList();
-                return _state with { Connected = live, Browsers = browsers };
+                var fresh = _seen.Where(p => Fresh(p.Value.LastSeen)).ToList();
+                var latest = _seen.Values.OrderByDescending(e => e.LastSeen).FirstOrDefault();
+                var freshLatest = fresh.Select(p => p.Value).OrderByDescending(e => e.LastSeen).FirstOrDefault();
+                var connectedBrowsers = fresh
+                    .Where(p => p.Key.Browser != "")
+                    .Select(p => new BrowserStatus(
+                        FormatBrowser(p.Key.Browser, p.Key.Id),
+                        p.Value.Version ?? "",
+                        p.Value.LastSeen))
+                    .OrderBy(b => b.Name, StringComparer.Ordinal)
+                    .ToList();
+                var browsers = connectedBrowsers.Select(b => b.Name).Distinct().Order().ToList();
+                return new ExtensionState
+                {
+                    Connected = fresh.Count > 0,
+                    Version = (freshLatest ?? latest)?.Version,
+                    LastSeen = latest?.LastSeen,
+                    Blocked = fresh.Sum(p => p.Value.Blocked),
+                    Checked = fresh.Sum(p => p.Value.Checked),
+                    Browsers = browsers,
+                    ConnectedBrowsers = connectedBrowsers,
+                };
             }
         }
     }
+
+    private static string FormatBrowser(string browser, string id) =>
+        id == AppInfo.StoreExtensionId ? browser : $"{browser} (dev build)";
 
     /// <summary>
     /// Whether the extension in this particular browser is reporting in. One browser
@@ -70,13 +110,12 @@ public sealed class ExtensionTracker
     /// </summary>
     public bool IsConnected(string browser, string? extensionId = null)
     {
+        var norm = Normalize(browser);
         lock (_gate)
         {
-            // An extension from before per-browser reporting can't say where it runs.
-            // Trust it for any browser until it updates, as the watchdog always did.
-            return _seen.Any(p => (p.Key.Browser == browser || p.Key.Browser == "")
+            return _seen.Any(p => p.Key.Browser == norm
                                   && (extensionId is null || p.Key.Id == extensionId)
-                                  && Fresh(p.Value));
+                                  && Fresh(p.Value.LastSeen));
         }
     }
 
@@ -87,8 +126,9 @@ public sealed class ExtensionTracker
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
-            _state = _state with { Version = version, LastSeen = now };
-            _seen[(Normalize(browser), extensionId ?? "")] = now;
+            var key = (Normalize(browser), extensionId ?? "");
+            var prev = _seen.GetValueOrDefault(key);
+            _seen[key] = new Entry(version ?? prev?.Version, prev?.Blocked ?? 0, prev?.Checked ?? 0, now);
         }
     }
 
@@ -97,21 +137,66 @@ public sealed class ExtensionTracker
         lock (_gate)
         {
             var now = DateTimeOffset.UtcNow;
-            _state = _state with
-            {
-                Version = args.Version,
-                LastSeen = now,
-                Blocked = args.Blocked,
-                Checked = args.Checked,
-            };
-            _seen[(Normalize(args.Browser), args.ExtensionId ?? "")] = now;
+            var key = (Normalize(args.Browser), args.ExtensionId ?? "");
+            _seen[key] = new Entry(args.Version, args.Blocked, args.Checked, now);
         }
     }
 
     private static string Normalize(string? browser) => browser?.Trim().ToLowerInvariant() ?? "";
 
-    /// <summary>Settings changed elsewhere; the extension picks them up on its next heartbeat.</summary>
-    public void SettingsChanged() { }
+    /// <summary>Bumps the settings revision and wakes any held `watch-settings` callers.</summary>
+    public int SettingsChanged()
+    {
+        TaskCompletionSource<int> old;
+        int rev;
+        lock (_gate)
+        {
+            rev = ++_revision;
+            _settingsChangedAt = DateTimeOffset.UtcNow;
+            old = _changed;
+            _changed = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        old.TrySetResult(rev);
+        return rev;
+    }
+
+    /// <summary>
+    /// Returns immediately if <paramref name="callerRevision"/> is behind <see cref="Revision"/>;
+    /// otherwise holds until the revision advances or <paramref name="hold"/> elapses.
+    /// </summary>
+    public async Task<(bool Accepted, int Revision)> WatchAsync(int? callerRevision, CancellationToken ct, TimeSpan? hold = null)
+    {
+        Task<int> waitTask;
+        lock (_gate)
+        {
+            if (callerRevision is null || callerRevision.Value < _revision)
+                return (true, _revision);
+            if (_watchers >= MaxWatchers)
+                return (false, _revision);
+            _watchers++;
+            waitTask = _changed.Task;
+        }
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(hold ?? DefaultHold);
+            try
+            {
+                var nextRev = await waitTask.WaitAsync(timeoutCts.Token);
+                return (true, nextRev);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // Hold timer elapsed cleanly; answer with the current revision.
+                return (true, Revision);
+            }
+        }
+        finally
+        {
+            lock (_gate) _watchers--;
+        }
+    }
 }
 
 public sealed record ApplyResult(bool Ok, string Message);
@@ -161,6 +246,14 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
         if (!Updater.IsNewer(_manifest.Version, AppInfo.Version)) return new ApplyResult(false, "already up to date");
 
         var installer = await _updater.DownloadInstallerAsync(_manifest, ct);
+        try
+        {
+            File.Copy(installer, Path.Combine(store.Directory, "previous-installer.exe"), overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "could not save previous-installer.exe for rollback");
+        }
         store.Note($"installing update {AppInfo.Version} -> {_manifest.Version}");
 
         // Close our own GUI and CLI first. They hold the files being replaced, and the
@@ -168,12 +261,12 @@ public sealed class UpdateService(StateStore store, ILogger<UpdateService> log)
         // the user's session. Leaving them open used to abort the update silently.
         CloseOurClients();
 
-        var log = Path.Combine(Path.GetTempPath(), $"Toolize-install-{_manifest.Version}.log");
+        var logPath = Path.Combine(Path.GetTempPath(), $"Toolize-install-{_manifest.Version}.log");
         // The installer stops the service, swaps the files and starts it again, so this
         // process is replaced mid-flight — hence no wait, and no work after this point.
         Process.Start(new ProcessStartInfo(installer)
         {
-            Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"{log}\"",
+            Arguments = $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"{logPath}\"",
             UseShellExecute = true,
         });
         return new ApplyResult(true, $"installing {_manifest.Version}");

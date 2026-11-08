@@ -15,7 +15,7 @@ namespace Toolize.Service;
 /// arrival events are duplicated and racy, and a one-second poll is both simpler and
 /// harder to fool than a cached "it was there a moment ago".
 /// </summary>
-public sealed class UnlockService(StateStore store, LockService locks, ILogger<UnlockService> log)
+public sealed class UnlockService(StateStore store, LockService locks, ILogger<UnlockService> log, ExtensionTracker? extension = null)
 {
     private static readonly TimeSpan Poll = TimeSpan.FromSeconds(1);
     /// <summary>How often a present key is re-proved by rotating its secret.</summary>
@@ -70,6 +70,8 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
     /// </summary>
     public LockState Refresh()
     {
+        var notifySettings = false;
+        LockState state;
         lock (_gate)
         {
             var keys = store.Keys;
@@ -82,7 +84,7 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
             }
 
             var check = _flash.Check(keys);
-            var state = check.Status switch
+            state = check.Status switch
             {
                 UnlockStatus.Verified => new LockState { Enrolled = true, KeyPresent = true, KeyName = check.Key!.Name },
                 _ => Locked(check.Detail),
@@ -90,23 +92,27 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
 
             if (check.Status != _last)
             {
+                var wasVerified = _last == UnlockStatus.Verified;
                 switch (check.Status)
                 {
                     case UnlockStatus.Verified:
                         log.LogInformation("unlocked by {Key}", check.Key!.Name);
                         store.Note($"unlocked by key '{check.Key.Name}'");
                         break;
-                    case UnlockStatus.Absent when _last == UnlockStatus.Verified:
+                    case UnlockStatus.Absent when wasVerified:
                         log.LogInformation("key removed — locked");
                         store.Note("key removed, re-locked");
+                        notifySettings = true;
                         break;
                     case UnlockStatus.Clone:
                         // The one thing Tier A can actually prove: two copies exist.
                         log.LogWarning("clone detected: {Detail}", check.Detail);
                         store.Note($"COPY DETECTED: {check.Detail}");
+                        if (wasVerified) notifySettings = true;
                         break;
                     case UnlockStatus.Invalid:
                         store.Note($"key rejected: {check.Detail}");
+                        if (wasVerified) notifySettings = true;
                         break;
                 }
                 _last = check.Status;
@@ -118,7 +124,7 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
                 _lastRotation = DateTimeOffset.UtcNow;
                 try
                 {
-                    store.UpdateKey(_flash.Rotate(check.Key!));
+                    _flash.Rotate(check.Key!, store.UpdateKey);
                 }
                 catch (Exception ex)
                 {
@@ -127,8 +133,10 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
             }
 
             locks.Update(state);
-            return state;
         }
+
+        if (notifySettings) extension?.SettingsChanged();
+        return state;
     }
 
     private static LockState Locked(string? detail) =>
@@ -176,13 +184,15 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
     /// </summary>
     public bool Recover(string code)
     {
+        bool ok;
         lock (_gate)
         {
-            var ok = store.UseRecoveryCode(code);
+            ok = store.UseRecoveryCode(code);
             store.Note(ok ? "recovery code used — all keys cleared" : "recovery code rejected");
             Refresh();
-            return ok;
         }
+        if (ok) extension?.SettingsChanged();
+        return ok;
     }
 
     public string IssueRecoveryCode()

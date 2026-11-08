@@ -26,31 +26,160 @@ var callerId = args.Select(a => a.StartsWith("chrome-extension://", StringCompar
 var client = new PipeClient(Protocol.PipeName(dev));
 var stdin = Console.OpenStandardInput();
 var stdout = Console.OpenStandardOutput();
+var writeGate = new SemaphoreSlim(1, 1);
+using var cts = new CancellationTokenSource();
+var firstRevision = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+var lastRevision = 0;
 
-while (true)
+var watchTask = WatchSettingsLoopAsync(client, stdout, writeGate, firstRevision.Task,
+    () => Volatile.Read(ref lastRevision),
+    rev => Interlocked.Exchange(ref lastRevision, rev),
+    cts.Token);
+
+try
 {
-    var message = await ReadMessageAsync(stdin);
-    if (message is null) return 0; // browser closed the port
+    while (true)
+    {
+        var message = await ReadMessageAsync(stdin);
+        if (message is null) break; // browser closed the port
 
-    Response response;
+        Request? request = null;
+        Response response;
+        try
+        {
+            request = JsonSerializer.Deserialize<Request>(message, Protocol.Json)
+                      ?? throw new InvalidOperationException("unreadable message");
+            response = await client.SendAsync(StampCaller(request, callerId), cts.Token, timeoutMs: 2000);
+            if (TryGetRevision(response.Data, out var rev))
+            {
+                Interlocked.Exchange(ref lastRevision, rev);
+                firstRevision.TrySetResult(rev);
+            }
+        }
+        catch (TimeoutException)
+        {
+            // The service isn't running. Say so plainly: the extension decides what to do,
+            // and in this phase it carries on with its cached settings.
+            response = Response.Failure(request?.Id ?? "?", "the Toolize service isn't running", "no-service");
+        }
+        catch (Exception ex)
+        {
+            response = Response.Failure(request?.Id ?? "?", ex.Message);
+        }
+
+        await WriteProtectedAsync(stdout, writeGate, JsonSerializer.Serialize(response, Protocol.Json));
+    }
+}
+finally
+{
+    cts.Cancel();
     try
     {
-        var request = JsonSerializer.Deserialize<Request>(message, Protocol.Json)
-                      ?? throw new InvalidOperationException("unreadable message");
-        response = await client.SendAsync(StampCaller(request, callerId));
+        await watchTask;
     }
-    catch (TimeoutException)
+    catch
     {
-        // The service isn't running. Say so plainly: the extension decides what to do,
-        // and in this phase it carries on with its cached settings.
-        response = Response.Failure("?", "the Toolize service isn't running", "no-service");
+        // Exit quietly when stdin closes.
     }
-    catch (Exception ex)
+}
+return 0;
+
+static async Task WatchSettingsLoopAsync(
+    PipeClient client,
+    Stream stdout,
+    SemaphoreSlim writeGate,
+    Task<int> initialRevisionTask,
+    Func<int> getRevision,
+    Action<int> setRevision,
+    CancellationToken ct)
+{
+    // Wait briefly for the initial hello/heartbeat to learn the starting revision so we
+    // don't send a redundant immediate push; if none arrives quickly, start at 0.
+    try
     {
-        response = Response.Failure("?", ex.Message);
+        using var initCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        initCts.CancelAfter(TimeSpan.FromSeconds(2));
+        await initialRevisionTask.WaitAsync(initCts.Token);
+    }
+    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+    {
+        // Carry on from revision 0.
     }
 
-    await WriteMessageAsync(stdout, JsonSerializer.Serialize(response, Protocol.Json));
+    int[] backoffs = [2000, 5000, 10000];
+    var failures = 0;
+
+    while (!ct.IsCancellationRequested)
+    {
+        try
+        {
+            var currentRev = getRevision();
+            var req = new Request(Verbs.WatchSettings)
+            {
+                Args = JsonSerializer.SerializeToElement(new WatchSettingsArgs(currentRev), Protocol.Json),
+            };
+            var resp = await client.SendAsync(req, ct, timeoutMs: 2000, readTimeoutMs: 30000);
+            if (!resp.Ok || resp.Data is not { } data)
+            {
+                var delay = backoffs[Math.Min(failures++, backoffs.Length - 1)];
+                await Task.Delay(delay, ct);
+                continue;
+            }
+
+            failures = 0;
+            if (TryGetRevision(data, out var rev) && rev > getRevision())
+            {
+                setRevision(rev);
+                if (data.TryGetProperty("settings", out var settings)
+                    && data.TryGetProperty("enforced", out var enforced))
+                {
+                    var push = new
+                    {
+                        id = "push",
+                        ok = true,
+                        data = new
+                        {
+                            settings,
+                            enforced = enforced.GetBoolean(),
+                        },
+                    };
+                    await WriteProtectedAsync(stdout, writeGate, JsonSerializer.Serialize(push, Protocol.Json));
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            break;
+        }
+        catch
+        {
+            var delay = backoffs[Math.Min(failures++, backoffs.Length - 1)];
+            await Task.Delay(delay, ct);
+        }
+    }
+}
+
+static bool TryGetRevision(JsonElement? data, out int revision)
+{
+    if (data is { ValueKind: JsonValueKind.Object } d
+        && d.TryGetProperty("revision", out var prop)
+        && prop.TryGetInt32(out revision))
+        return true;
+    revision = 0;
+    return false;
+}
+
+static async Task WriteProtectedAsync(Stream output, SemaphoreSlim gate, string json)
+{
+    await gate.WaitAsync();
+    try
+    {
+        await WriteMessageAsync(output, json);
+    }
+    finally
+    {
+        gate.Release();
+    }
 }
 
 // Overwrites any extensionId the extension put in its args with the one Chrome reported.

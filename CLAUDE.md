@@ -225,7 +225,7 @@ Be precise about this, because "uncopyable USB" is a real distinction:
 
 - **Install once, update in place.** Both machines (desktop + laptop) get an installer
   once. After that, new versions arrive through the app's **Update** button: the
-  service fetches a signed `update.json` from the release host, verifies an Ed25519
+  service fetches a signed `update.json` from the release host, verifies an RSA-4096
   signature against a public key baked into the binary, downloads the installer,
   verifies SHA-256, and applies it silently. A bad signature aborts, loudly.
 - **Extension updates ride along.** A force-installed extension updates from the

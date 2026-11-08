@@ -25,15 +25,23 @@ public sealed record UpdateManifest
 /// from the release key, and the installer must match the SHA-256 the manifest names.
 /// A failure at either step aborts loudly and changes nothing.
 /// </summary>
-public sealed class Updater(string repo, string publicKeyBase64, string userAgent = "Toolize")
+public sealed class Updater
 {
+    private readonly string _repo;
+    private readonly string _publicKeyBase64;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+    public Updater(string repo, string publicKeyBase64, string userAgent = "Toolize")
+    {
+        _repo = repo;
+        _publicKeyBase64 = publicKeyBase64;
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+    }
 
     public async Task<UpdateManifest?> FetchManifestAsync(string channel, CancellationToken ct = default)
     {
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
         var releases = await _http.GetFromJsonSafeAsync<List<GhRelease>>(
-            $"https://api.github.com/repos/{repo}/releases?per_page=20", ct) ?? [];
+            $"https://api.github.com/repos/{_repo}/releases?per_page=20", ct) ?? [];
 
         // dev sees prereleases and stable ones; stable only sees stable.
         var release = releases
@@ -60,7 +68,7 @@ public sealed class Updater(string repo, string publicKeyBase64, string userAgen
         try
         {
             using var rsa = RSA.Create();
-            rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyBase64), out _);
+            rsa.ImportSubjectPublicKeyInfo(Convert.FromBase64String(_publicKeyBase64), out _);
             return rsa.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         }
         catch

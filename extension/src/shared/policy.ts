@@ -68,6 +68,8 @@ export function isExplicit(r: ClassifyResult, t: Thresholds): boolean {
     // Hentai beside safety blurs at 0.5, but blocking a whole site wants more than
     // borderline drawn art (anime fan sites): a confident score only.
     return r.whole.hentai > Math.max(t.hentaiBesideSafety, LEARN_HENTAI) ||
+      // The porn trigger, when a preset enables it, already sits at ≥ 0.9.
+      (t.pornBesideSafety !== null && r.whole.porn > t.pornBesideSafety) ||
       (r.safety > Math.max(t.safety, LEARN_SAFETY) && r.whole.porn + r.whole.hentai > r.whole.sexy);
   }
   const over = (s: Scores) => s.porn > t.porn || s.hentai > t.hentai;

@@ -12,7 +12,7 @@ import type {
 } from '../shared/messages';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../shared/settings';
 import { hello, isConnected, requestSettings, startHeartbeat } from './companion';
-import { learn, scheduleListUpdates, syncDynamicRules, unlearn, updateList } from './blocklist';
+import { learn, reconcileDnr, scheduleListUpdates, syncDynamicRules, unlearn, updateList } from './blocklist';
 
 /**
  * Service worker: routes classify requests to the offscreen document (creating it on
@@ -180,14 +180,23 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
 const ADULT_RULESET = 'adult';
 
 /** Keeps the declarativeNetRequest ruleset in step with the setting. */
-async function syncRulesets(): Promise<void> {
-  const { settings } = await chrome.storage.local.get('settings');
-  const wanted = (settings as Settings | undefined)?.blockAdultSites ?? DEFAULT_SETTINGS.blockAdultSites;
-  const enabled = await chrome.declarativeNetRequest.getEnabledRulesets();
-  if (wanted === enabled.includes(ADULT_RULESET)) return;
-  await chrome.declarativeNetRequest.updateEnabledRulesets(
-    wanted ? { enableRulesetIds: [ADULT_RULESET] } : { disableRulesetIds: [ADULT_RULESET] },
-  );
+function syncRulesets(): Promise<void> {
+  return reconcileDnr(async () => {
+    const wanted = async () => {
+      const s = await loadSettings();
+      return s.enabled && s.blockAdultSites;
+    };
+    let next: boolean;
+    do {
+      next = await wanted();
+      const enabled = await chrome.declarativeNetRequest.getEnabledRulesets();
+      if (next !== enabled.includes(ADULT_RULESET)) {
+        await chrome.declarativeNetRequest.updateEnabledRulesets(
+          next ? { enableRulesetIds: [ADULT_RULESET] } : { disableRulesetIds: [ADULT_RULESET] },
+        );
+      }
+    } while (next !== await wanted());
+  });
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -274,6 +283,7 @@ function connectCompanion(): void {
 chrome.runtime.onStartup.addListener(() => {
   void ensureOffscreen();
   void syncRulesets();
+  void syncDynamicRules();
   connectCompanion();
 });
 chrome.runtime.onInstalled.addListener(() => {

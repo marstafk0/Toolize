@@ -37,7 +37,15 @@ flash-drive tier; see *The unlock key* below for what each tier actually guarant
 
 ## Word filter
 
-On by default. A page whose address or title contains a blocked word is replaced with the blocked page, which covers searches too. On YouTube, videos, Shorts and channels whose title or channel name contains one are hidden, and a matching video's page is blocked. The built-in list covers explicit and revealing terms ("nude", "bikini" but not "Bikini Bottom", "try on haul", …); add your own in the desktop app or with `toolize words add <word>`. Matching is whole-word ("sex" doesn't block "Essex") and sees through fancy Unicode fonts and lookalike letters. Turning it off or removing a word needs the key. It works in every browser Toolize runs in; it doesn't read text in other Windows apps.
+On by default. A page whose address or title contains a blocked word is replaced with the blocked page. On YouTube, videos, Shorts and channels whose title or channel name contains one are hidden, and a matching video's page is blocked. The built-in list covers explicit acts, anatomy, adult sites, anime/hentai, kink and revealing terms (including "bikini" but not "Bikini Bottom"). Add your own in the desktop app or with `toolize words add <word>`. Address/title matching is whole-word, sees through fancy Unicode fonts and lookalike letters, and catches common leetspeak spellings.
+
+Searches get an extra check across engines and social sites, including generic search parameters, supported search/tag paths, embedded frames and navigation inside a page. Strong terms match inside concatenated or spaced-out queries such as `freep0rnvideos`, `bigtitsgirls` and `h 3 n t a i`. Short ambiguous words stay whole-word: "Sussex university", "Middlesex" and "analysis" remain allowed. This broader substring check applies only to the extracted query. A blocked search gets its own explanation; Toolize never logs or retains the query.
+
+**Safe search** is on by default (`safeSearch: true`). It forces the engines' own filters on Google, Bing, DuckDuckGo, Yahoo, Brave Search, Qwant and Startpage at the network layer, even when the word filter is off. Google SafeSearch is Google's own filter, and its coverage and decisions are outside our control. Ecosia, Yandex and Baidu still get query word checks; their network rewrites are omitted because a reliable URL setting was not confirmed. [Engine details and evidence](extension/docs/search.md).
+
+**YouTube restricted mode** is optional (`youtubeRestrict: 'off'`, `'moderate'` or `'strict'`, default `'off'`). Moderate hides most mature videos; Strict hides substantially more, including many ordinary ones. Toolize sets YouTube's documented request header so the site applies its own filter.
+
+Turning off the word filter or SafeSearch, removing a word, or lowering YouTube Restricted Mode needs the key when the companion is installed. The protection master switch disables all of them. Vocabulary cannot catch every euphemism or language, and URL checks cannot inspect POST-only queries or unknown search URL schemes. Search inputs and text in other Windows apps are not monitored.
 
 ## Trusted YouTube channels
 

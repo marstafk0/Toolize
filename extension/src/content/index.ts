@@ -31,13 +31,11 @@ if (!g[INSTANCE]?.isAlive()) {
   const site = window === window.top ? siteForHost(location.hostname) : undefined;
   const feeds = site ? new FeedHider(site) : null;
   const youtube = site?.id === 'youtube' ? new YouTubeGuard() : null;
-  const words =
-    window === window.top
-      ? new WordFilter(() => {
-          for (const v of document.querySelectorAll('video')) v.pause();
-          location.replace(chrome.runtime.getURL('blocked/blocked.html?reason=words'));
-        })
-      : null;
+  // Searches inside embedded frames need the same checks as a top-level search.
+  const words = new WordFilter((reason) => {
+    for (const v of document.querySelectorAll('video')) v.pause();
+    location.replace(chrome.runtime.getURL(`blocked/blocked.html?reason=${reason}`));
+  });
   feeds?.start();
   youtube?.start();
   words?.start();

@@ -5,6 +5,7 @@ import type { Preset } from './policy';
  * fast:  media shows immediately, blurred only once flagged (detect-then-blur).
  */
 export type RevealMode = 'safe' | 'fast';
+export type YouTubeRestrict = 'off' | 'moderate' | 'strict';
 
 export interface Settings {
   enabled: boolean;
@@ -18,6 +19,10 @@ export interface Settings {
   feeds: Record<string, boolean>;
   /** Block pages and hide YouTube videos whose address or title has a blocked word. */
   wordFilter: boolean;
+  /** Force supported engines' own SafeSearch. Turning it off is weakening. */
+  safeSearch: boolean;
+  /** YouTube's network Restricted Mode. Lowering it is weakening. */
+  youtubeRestrict: YouTubeRestrict;
   /** The user's own words, on top of DEFAULT_WORDS (shared/words.ts). */
   blockedWords: string[];
   /** YouTube channels whose videos and thumbnails skip the image check (shared/channels.ts). */
@@ -32,6 +37,8 @@ export const DEFAULT_SETTINGS: Settings = {
   allowLiveStreams: false,
   feeds: {},
   wordFilter: true,
+  safeSearch: true,
+  youtubeRestrict: 'off',
   blockedWords: [],
   trustedChannels: [],
 };

@@ -119,13 +119,28 @@ about what each tier actually guarantees.
   against logged-in accounts; Reddit feed rules hide light-DOM containers only and
   cannot pierce shadow roots. TikTok without the feed is mostly search and profiles.
 - **Word filter** (`wordFilter`, on by default; `blockedWords` = the user's extras on
-  top of `DEFAULT_WORDS` in shared/words.ts): a page whose address or title has a
-  blocked word goes to the blocked page (covers searches); on YouTube, tiles whose
-  title/channel match are hidden and a matching watch page is blocked. Whole-word,
-  case-insensitive, after the same Unicode/lookalike folding as the bot filter; `/re/`
-  entries are patterns. Turning it off or removing a word is weakening. Idea from
-  DuckySteals/word-guard (no license, so reimplemented, own list). Browser-only; a
-  Windows-wide version would need a per-user UI Automation agent (phase 7 territory).
+  top of `DEFAULT_WORDS` in shared/words.ts): address/title checks remain whole-word,
+  case-insensitive, with Unicode/lookalike folding and `/re/` patterns. The expanded
+  list covers acts, anatomy, adult sites, anime/hentai and kink, plus common leetspeak.
+  `shared/search.ts` extracts queries on search engines/social sites and generic URL
+  search parameters, including path searches and SPA navigation, in every frame.
+  Queries also match `STRONG_QUERY_WORDS` after Unicode/leet/spacing folding, catching
+  concatenated searches such as `freep0rnvideos` and `bigtitsgirls`; ambiguous short
+  words stay whole-word so Sussex, Middlesex and analysis work. Substring matching
+  never applies to whole URLs/titles. Search matches use `reason=search`, retaining
+  no query. On YouTube, matching tiles are hidden and matching watch pages blocked.
+  Independent network **SafeSearch** (`safeSearch`, default true) forces Google,
+  Bing, DuckDuckGo, Yahoo, Brave, Qwant and Startpage filters before results load.
+  Google SafeSearch is Google's own filter, whose decisions are outside our control.
+  Optional **YouTube Restricted Mode** (`youtubeRestrict`: `off`/`moderate`/`strict`,
+  default `off`) sets the documented request header. The master switch disables
+  these too. Disabling SafeSearch, lowering Restricted Mode, turning off the word
+  filter or removing words is weakening; the companion enforces the key requirement.
+  URL checks cannot see POST-only searches or unknown URL schemes, and vocabulary
+  cannot catch every language or euphemism. No search input monitoring, query logs
+  or new outbound requests. Engine evidence/omissions: `extension/docs/search.md`.
+  Idea from DuckySteals/word-guard (no license, so reimplemented, own list).
+  Browser-only; other Windows apps would need a per-user UI Automation agent.
 - **Trusted YouTube channels** (`trustedChannels`, shared/channels.ts): videos, Shorts
   and list thumbnails from these channels skip the image check. For channels the model
   reliably misjudges — measured: butchery/cooking Shorts score porn 0.94–0.95 on raw

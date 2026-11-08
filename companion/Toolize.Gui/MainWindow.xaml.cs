@@ -70,6 +70,7 @@ public partial class MainWindow : Window
         [
             EnabledBox, PresetStrict, PresetBalanced, PresetRelaxed,
             ModeSafe, ModeFast, BlockSitesBox, AllowLiveBox, WordFilterBox,
+            SafeSearchBox, YouTubeRestrictOff, YouTubeRestrictModerate, YouTubeRestrictStrict,
             EnforceBox, BlockIncognitoBox, BlockOtherExtBox, BlockDevToolsBox,
             WatchdogOff, WatchdogWarn, WatchdogClose,
         ];
@@ -118,6 +119,10 @@ public partial class MainWindow : Window
             AllowLiveBox.IsChecked = s.Settings.AllowLiveStreams;
             foreach (var (key, box) in _feedBoxes) box.IsChecked = s.Settings.Feeds?.GetValueOrDefault(key) == true;
             WordFilterBox.IsChecked = s.Settings.WordFilter;
+            SafeSearchBox.IsChecked = s.Settings.SafeSearch;
+            YouTubeRestrictOff.IsChecked = s.Settings.YouTubeRestrict == YouTubeRestrict.Off;
+            YouTubeRestrictModerate.IsChecked = s.Settings.YouTubeRestrict == YouTubeRestrict.Moderate;
+            YouTubeRestrictStrict.IsChecked = s.Settings.YouTubeRestrict == YouTubeRestrict.Strict;
             // Don't overwrite what the user is typing on every refresh — unless the key
             // was just removed, which reverts half-applied edits immediately.
             if (keyRemovedNow || !WordsBox.IsKeyboardFocusWithin)
@@ -243,6 +248,10 @@ public partial class MainWindow : Window
         SetBadge(BlockSitesBox, NeedsKey(cur with { BlockAdultSites = !cur.BlockAdultSites }));
         SetBadge(AllowLiveBox, NeedsKey(cur with { AllowLiveStreams = !cur.AllowLiveStreams }));
         SetBadge(WordFilterBox, NeedsKey(cur with { WordFilter = !cur.WordFilter }));
+        SetBadge(SafeSearchBox, NeedsKey(cur with { SafeSearch = !cur.SafeSearch }));
+        SetBadge(YouTubeRestrictOff, NeedsKey(cur with { YouTubeRestrict = YouTubeRestrict.Off }));
+        SetBadge(YouTubeRestrictModerate, NeedsKey(cur with { YouTubeRestrict = YouTubeRestrict.Moderate }));
+        SetBadge(YouTubeRestrictStrict, NeedsKey(cur with { YouTubeRestrict = YouTubeRestrict.Strict }));
 
         foreach (var (key, box) in _feedBoxes)
         {
@@ -359,6 +368,10 @@ public partial class MainWindow : Window
             AllowLiveStreams = AllowLiveBox.IsChecked == true,
             Feeds = _feedBoxes.ToDictionary(f => f.Key, f => f.Value.IsChecked == true),
             WordFilter = WordFilterBox.IsChecked == true,
+            SafeSearch = SafeSearchBox.IsChecked == true,
+            YouTubeRestrict = YouTubeRestrictStrict.IsChecked == true ? YouTubeRestrict.Strict
+                : YouTubeRestrictModerate.IsChecked == true ? YouTubeRestrict.Moderate
+                : YouTubeRestrict.Off,
             BlockedWords = WordsBox.Text.Split(['\r', '\n']).Select(w => w.Trim()).Where(w => w.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             TrustedChannels = ChannelsBox.Text.Split(['\r', '\n']).Select(w => w.Trim()).Where(w => w.Length > 0)

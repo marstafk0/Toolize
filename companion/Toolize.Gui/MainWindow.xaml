@@ -113,7 +113,18 @@
                         <CheckBox x:Name="WordFilterBox" Content="Block pages and searches with blocked words, and hide matching YouTube videos" Click="OnSettingChanged" />
                         <TextBlock Style="{StaticResource Hint}"
                                    Text="A built-in list covers explicit and revealing terms (porn, nude, bikini, try-on haul…). Add your own below, one per line; /pattern/ for a regular expression. Removing a word needs your key." />
-                        <TextBox x:Name="WordsBox" Margin="0,8,0,0" Height="80" AcceptsReturn="True" TextWrapping="Wrap"
+                        <CheckBox x:Name="SafeSearchBox" Margin="0,12,0,0" Content="Safe search" Click="OnSettingChanged" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Forces the search engines' own SafeSearch (Google, Bing, DuckDuckGo and others) and blocks explicit searches outright. Turning it off needs your key." />
+                        <TextBlock Margin="0,14,0,6" FontWeight="SemiBold" Text="YouTube restricted mode" />
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="YouTubeRestrictOff" GroupName="youtubeRestrict" Content="Off" Click="OnSettingChanged" />
+                            <RadioButton x:Name="YouTubeRestrictModerate" GroupName="youtubeRestrict" Content="Moderate" Click="OnSettingChanged" />
+                            <RadioButton x:Name="YouTubeRestrictStrict" GroupName="youtubeRestrict" Content="Strict" Click="OnSettingChanged" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="YouTube's own Restricted Mode. Moderate hides most mature videos; Strict hides a lot more, including many ordinary ones. Lowering it needs your key." />
+                        <TextBox x:Name="WordsBox" Margin="0,12,0,0" Height="80" AcceptsReturn="True" TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto" FontFamily="Consolas" />
                         <Button x:Name="SaveWordsButton" Margin="0,8,0,0" HorizontalAlignment="Left" Content="Save words" Click="OnSettingChanged" />
                     </StackPanel>

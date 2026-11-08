@@ -236,7 +236,9 @@ async Task ShowStatusAsync()
     Console.WriteLine($"Toolize {s.Version} ({s.Channel} channel)");
     Console.WriteLine($"  protection   {(s.Settings.Enabled ? "on" : "OFF")}, {s.Settings.Preset.ToString().ToLower()}, " +
                       $"{(s.Settings.Mode == RevealMode.Safe ? "safe reveal" : "detect then blur")}" +
-                      $"{(s.Settings.BlockAdultSites ? ", adult sites blocked" : "")}");
+                      $"{(s.Settings.BlockAdultSites ? ", adult sites blocked" : "")}" +
+                      $", safe search {(s.Settings.SafeSearch ? "on" : "off")}" +
+                      $", YouTube restrict {s.Settings.YouTubeRestrict.ToString().ToLowerInvariant()}");
     var feeds = (s.Settings.Feeds ?? []).Where(f => f.Value).Select(f => f.Key).ToList();
     Console.WriteLine($"  feeds        {(feeds.Count == 0 ? "none hidden" : $"hidden: {string.Join(", ", feeds)}")}");
     var lockText = !s.Lock.Enrolled
@@ -261,10 +263,12 @@ async Task SetAsync(string[] pair)
         Console.Error.WriteLine("""
             usage: toolize set <setting> <value>
               enabled | blockAdultSites | allowLiveStreams | enforce | blockIncognito | blockOtherExtensions | blockDevTools   on|off
-              preset   strict|balanced|relaxed
-              mode     safe|fast
-              watchdog off|warn|close
-              wordFilter on|off
+              preset          strict|balanced|relaxed
+              mode            safe|fast
+              watchdog        off|warn|close
+              wordFilter      on|off
+              safeSearch      on|off
+              youtubeRestrict off|moderate|strict
               feed <site.toggle> on|off     (on = hidden)
             """);
         Console.Error.WriteLine("  feeds: " + string.Join(", ", FeedCatalog.Sites.SelectMany(s => s.Toggles).Select(t => t.Key)));
@@ -280,6 +284,8 @@ async Task SetAsync(string[] pair)
     var next = key switch
     {
         "wordfilter" => current with { WordFilter = ParseBool(value) },
+        "safesearch" => current with { SafeSearch = ParseBool(value) },
+        "youtuberestrict" => current with { YouTubeRestrict = Enum.Parse<YouTubeRestrict>(value, true) },
         "feed" => current with { Feeds = new(current.Feeds ?? []) { [pair[1]] = ParseBool(value) } },
         "enabled" => current with { Enabled = ParseBool(value) },
         "preset" => current with { Preset = Enum.Parse<Preset>(value, true) },

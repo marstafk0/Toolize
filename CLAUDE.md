@@ -182,7 +182,8 @@ about what each tier actually guarantees.
   `ExtensionInstallForcelist` (force-install; Remove is greyed out), `ExtensionSettings`
   (block all other extensions except ours), `DeveloperToolsAvailability=2`,
   `IncognitoModeAvailability=1` / `InPrivateModeAvailability=1` / `TorDisabled=1`,
-  `BrowserGuestModeEnabled=0`, `BrowserAddPersonEnabled=0`. Roots:
+  `BrowserGuestModeEnabled=0`, `BrowserAddPersonEnabled=0`, `ForceGoogleSafeSearch=1`
+  (plus `ForceBingSafeSearch=2` on Edge), `ForceYouTubeRestrict=1|2`. Roots:
   `HKLM\SOFTWARE\Policies\{Google\Chrome, Microsoft\Edge, BraveSoftware\Brave}`.
   This is the primary lockdown mechanism; the watchdog is secondary.
 - **Incognito:** there is no policy to force "Allow in Incognito" for one extension, so

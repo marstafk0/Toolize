@@ -137,6 +137,7 @@ for Chrome, Edge and Brave and puts it back within 30 seconds if anything edits 
 | `blockIncognito` | Private windows, guest mode, new profiles and Brave's Tor windows off | on |
 | `blockDevTools` | Developer tools off, so nothing on a page can be inspected away. Also blocks loading unpacked extensions | on |
 | `blockOtherExtensions` | Every other extension blocked | off |
+| `safeSearch` / `youtubeRestrict` | Browser-level SafeSearch (`ForceGoogleSafeSearch`, plus `ForceBingSafeSearch` on Edge) and YouTube Restricted Mode (`ForceYouTubeRestrict`) on top of the extension's request rules | on / off |
 | `watchdog` | A browser running without the extension checking in, or a browser that can't run it (Firefox, Opera, …): `off`, `warn`, or `close` it after 2 minutes. Each browser is judged on its own | warn |
 
 Turning any of these down needs the key, like every other weakening change. So does

@@ -17,6 +17,7 @@ const RETRY_MS = 1500;
 interface Track {
   src: string;
   key: string;
+  generation: number;
   refining?: boolean;
   attempts?: number;
   /** Dev timing: when it entered the queue. */
@@ -32,6 +33,7 @@ export class ImageWatcher {
   /** src changed but the new image hasn't loaded yet — decisions would be stale. */
   private stale = new WeakSet<HTMLImageElement>();
   private settings: Settings | null = null;
+  private generation = 0;
 
   private readonly queue = new NearViewportQueue(
     (el) => this.dispatch(el as HTMLImageElement),
@@ -57,10 +59,12 @@ export class ImageWatcher {
   ) {}
 
   setSettings(s: Settings): void {
+    this.generation++;
     this.settings = s;
   }
 
   stop(): void {
+    this.generation++;
     this.queue.disconnect();
   }
 
@@ -95,8 +99,8 @@ export class ImageWatcher {
     if (!src || this.stale.has(img)) return this.stamper.set(img, this.pendingState());
 
     let t = this.tracks.get(img);
-    if (!t || t.src !== src) {
-      t = { src, key: this.client.key(src) };
+    if (!t || t.src !== src || t.generation !== this.generation) {
+      t = { src, key: this.client.key(src), generation: this.generation };
       this.tracks.set(img, t);
       this.queue.drop(img);
     }
@@ -131,41 +135,54 @@ export class ImageWatcher {
         console.debug(`[toolize-timing] queue ${Math.round(started - t.queuedAt)} rtt ${Math.round(performance.now() - started)}`);
       if (this.current(img, t)) this.apply(img, t, r);
     } catch (e) {
-      // A request that fails after protection was switched off must not re-stamp it.
-      if (!this.current(img, t)) return;
-      // Started early and the fallback needs the decoded image: the load event retries.
-      if (!img.complete) return;
-      if (unjudged(img)) return this.stamper.set(img, 'skip');
-      this.stamper.set(img, 'error');
-      if (__DEV__) console.warn('[toolize] image classify failed', t.src.slice(0, 120), e);
-      // Most failures are transient: the service worker or classifier restarting, a
-      // dropped message, a CDN hiccup. Without a retry a perfectly fine thumbnail stays
-      // blurred until the page is reloaded. It stays blurred while it waits.
-      t.attempts = (t.attempts ?? 1) + 1;
-      if (t.attempts <= MAX_ATTEMPTS) {
-        setTimeout(() => {
-          if (this.current(img, t) && img.isConnected) this.queue.observe(img);
-        }, RETRY_MS * 2 ** (t.attempts - 2));
-      }
+      this.retry(img, t, e);
+    }
+  }
+
+  private retry(img: HTMLImageElement, t: Track, e: unknown): void {
+    // A request that fails after protection was switched off must not re-stamp it.
+    if (!this.current(img, t)) return;
+    // Started early and the fallback needs the decoded image: the load event retries.
+    if (!img.complete) return;
+    if (unjudged(img)) return this.stamper.set(img, 'skip');
+    this.stamper.set(img, 'error');
+    if (__DEV__) console.warn('[toolize] image classify failed', t.src.slice(0, 120), e);
+    // Most failures are transient: the service worker or classifier restarting, a
+    // dropped message, a CDN hiccup. Without a retry a perfectly fine thumbnail stays
+    // blurred until the page is reloaded. It stays blurred while it waits.
+    t.attempts = (t.attempts ?? 1) + 1;
+    if (t.attempts <= MAX_ATTEMPTS) {
+      setTimeout(() => {
+        if (this.current(img, t) && img.isConnected) this.queue.observe(img);
+      }, RETRY_MS * 2 ** (t.attempts - 2));
     }
   }
 
   private apply(img: HTMLImageElement, t: Track, r: ClassifyResult): void {
+    if (!this.current(img, t)) return;
     // A verdict started while the image was loading can land after the load event
     // found it broken or icon-sized. Those are never judged, so the size rule wins.
     if (unjudged(img)) return this.stamper.set(img, 'skip');
+    if (this.fromTrustedChannel(img)) return this.stamper.set(img, 'skip');
     const thresholds = PRESETS[this.settings!.preset];
     const d = decide(r, thresholds);
     if (d === 'blocked' && isExplicit(r, thresholds)) this.onExplicit(t.key);
     if (d !== 'refine') return this.stamper.set(img, d);
 
     // Borderline: stay hidden and re-score on full-resolution tiles.
+    if ((t.attempts ?? 1) > MAX_ATTEMPTS) return this.stamper.set(img, 'error');
     this.stamper.set(img, this.pendingState());
     if (t.refining) return;
     t.refining = true;
     this.request(img, t, true).then(
-      (r2) => this.current(img, t) && this.apply(img, t, r2),
-      () => this.current(img, t) && this.stamper.set(img, 'error'),
+      (r2) => {
+        t.refining = false;
+        if (this.current(img, t)) this.apply(img, t, r2);
+      },
+      (e) => {
+        t.refining = false;
+        this.retry(img, t, e);
+      },
     );
   }
 
@@ -178,7 +195,7 @@ export class ImageWatcher {
 
   /** Still the same image, and protection still on? */
   private current(img: HTMLImageElement, t: Track): boolean {
-    return this.tracks.get(img) === t && !!this.settings?.enabled;
+    return this.tracks.get(img) === t && t.generation === this.generation && !!this.settings?.enabled;
   }
 
   private async request(img: HTMLImageElement, t: Track, refine: boolean): Promise<ClassifyResult> {
@@ -190,6 +207,9 @@ export class ImageWatcher {
       return await this.client.classify(t.key, source, refine, tag);
     } catch (e) {
       if (!isFetchFailure(e)) throw e;
+      if (!this.current(img, t) || this.stale.has(img) || !img.complete || (img.currentSrc || img.src) !== t.src) {
+        throw new Error('image changed before pixel fallback');
+      }
       // e.g. a CDN that demands the page's Referer. Works if the image is same-origin
       // or CORS-enabled; throws SecurityError if the canvas is tainted → stays blurred.
       return this.client.classify(t.key, { dataUrl: extractPixels(img) }, refine, tag);

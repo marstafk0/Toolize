@@ -39,6 +39,7 @@ export class BackgroundWatcher {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private blocked = 0;
+  private generation = 0;
 
   constructor(
     private readonly client: ClassifyClient,
@@ -52,6 +53,7 @@ export class BackgroundWatcher {
 
   setSettings(s: Settings): void {
     const prev = this.settings;
+    if (prev?.enabled !== s.enabled || prev?.preset !== s.preset) this.generation++;
     this.settings = s;
     if (!s.enabled) return this.revealAll();
     // Re-decide everything when the thresholds change (cached scores make this cheap).
@@ -65,6 +67,7 @@ export class BackgroundWatcher {
   }
 
   stop(): void {
+    this.generation++;
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
   }
@@ -88,6 +91,7 @@ export class BackgroundWatcher {
   private lastSweep = 0;
 
   private sweep(): void {
+    if (this.stopped || !this.settings?.enabled) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
     // Only descend into shadow roots whose host is actually under the point. Hit-testing
@@ -123,6 +127,8 @@ export class BackgroundWatcher {
   }
 
   private async check(el: Element): Promise<void> {
+    if (this.stopped || !this.settings?.enabled) return;
+    const generation = this.generation;
     // Already hidden: our own `background-image: none` is what getComputedStyle now
     // reports, so re-reading it would look like "no background", reveal the element and
     // start a hide/reveal flicker loop. It stays hidden until invalidate() says
@@ -139,17 +145,23 @@ export class BackgroundWatcher {
     try {
       const known = this.client.cached(key);
       const r = known ?? (await this.client.classify(key, { url }, false));
-      if (this.seen.get(el) !== url || !this.settings?.enabled) return;
+      if (!this.current(el, url, generation)) return;
       const t = PRESETS[this.settings.preset];
       let d = decide(r, t);
       if (d === 'refine') d = decide(await this.client.classify(key, { url }, true), t);
+      if (!this.current(el, url, generation)) return;
       d === 'blocked' ? this.hide(el) : this.reveal(el);
     } catch (e) {
       // Fail safe: a background we couldn't classify is hidden, and losing a background
       // image costs the page far less than losing an <img>.
-      this.hide(el);
+      if (this.current(el, url, generation)) this.hide(el);
       if (__DEV__) console.warn('[toolize] background classify failed', url.slice(0, 120), e);
     }
+  }
+
+  private current(el: Element, url: string, generation: number): boolean {
+    return !this.stopped && !!this.settings?.enabled && this.generation === generation &&
+      this.seen.get(el) === url && backgroundUrl(el) === url;
   }
 
   /** The page restyled a hidden element: let the next sweep judge it afresh. */

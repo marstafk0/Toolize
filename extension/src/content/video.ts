@@ -36,7 +36,7 @@ const FLAGGED_TO_BLUR = 2;
 const CHANNEL_WAIT_MS = 1500;
 /** Consecutive clean frames needed to reveal — stops borderline clips from strobing. */
 const CLEAN_STREAK = 3;
-/** Videos sampled at once, largest first. */
+/** Videos sampled at once. */
 const MAX_CONCURRENT = 4;
 const FRAME_MAX_SIDE = 448;
 /** Videos smaller than this are decorative loops/backgrounds too small to read. */
@@ -49,7 +49,7 @@ interface Track {
   recent: Frame[];
   cleanStreak: number;
   drm: boolean;
-  /** The offscreen whole-file path already ran (or failed) for this source. */
+  /** The offscreen whole-file path returned a definitive verdict for this source. */
   fileTried: boolean;
   src: string;
   /** No more sampling: DRM, a whole-file verdict, or an unreadable source. */
@@ -73,6 +73,10 @@ interface Track {
   exempt?: boolean;
   /** When the track started, to bound the wait for YouTube to name the channel. */
   seenAt: number;
+  generation: number;
+  preset: Settings['preset'];
+  posterSrc?: string;
+  pausedByUs?: boolean;
 }
 
 /** The video's pixels can't be read at all; retrying won't change that. */
@@ -97,6 +101,8 @@ export class VideoWatcher {
   private settings: Settings | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = new WeakSet<HTMLVideoElement>();
+  private generation = 0;
+  private inFlight = 0;
 
   private readonly io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -112,7 +118,16 @@ export class VideoWatcher {
   ) {}
 
   setSettings(s: Settings): void {
+    const prev = this.settings;
+    this.generation++;
     this.settings = s;
+    for (const v of this.candidates) {
+      const t = this.tracks.get(v);
+      if (!t) continue;
+      t.posterSrc = undefined;
+      if (!s.enabled) this.resume(v, t);
+      if ((!prev?.enabled && s.enabled) || prev?.preset !== s.preset) this.reset(t, prev?.preset === s.preset);
+    }
     if (s.enabled && !this.timer) this.timer = setInterval(() => void this.tick(), TICK_MS);
     if (!s.enabled && this.timer) {
       clearInterval(this.timer);
@@ -121,6 +136,7 @@ export class VideoWatcher {
   }
 
   stop(): void {
+    this.generation++;
     this.io.disconnect();
     this.candidates.clear();
     if (this.timer) clearInterval(this.timer);
@@ -132,7 +148,8 @@ export class VideoWatcher {
     const s = this.settings;
     if (!s) return;
     if (!s.enabled) {
-      this.candidates.delete(video);
+      const t = this.tracks.get(video);
+      if (t) this.resume(video, t);
       return this.stamper.set(video, 'off');
     }
 
@@ -140,24 +157,44 @@ export class VideoWatcher {
     let t = this.tracks.get(video);
     const src = video.currentSrc || video.src;
     if (!t || t.src !== src) {
-      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: FIRST_SAMPLE_MS, nextAt: 0, failures: 0, seenAt: performance.now() };
+      t = { recent: [], cleanStreak: 0, drm: false, fileTried: false, src, every: FIRST_SAMPLE_MS, nextAt: 0, failures: 0, seenAt: performance.now(), generation: 0, preset: s.preset, pausedByUs: t?.pausedByUs };
       this.tracks.set(video, t);
       this.io.observe(video);
       this.stamper.set(video, this.pendingState());
     }
 
     if (video.mediaKeys || this.drm.has(video)) return this.onDrm(video);
-    // Coming back from disabled: restore the last verdict rather than re-sampling.
-    if (this.stamper.get(video) === 'off') this.stamper.set(video, t.verdict ?? this.pendingState());
+    // Keep viewport membership across disable, but judge restored verdicts afresh.
+    if (this.stamper.get(video) === 'off' || t.preset !== s.preset) {
+      this.reset(t, t.preset === s.preset);
+      this.stamper.set(video, t.verdict ?? this.pendingState());
+    }
+    t.preset = s.preset;
+
+    if (this.tiny(video)) {
+      if (this.stamper.get(video) !== 'skip') t.generation++;
+      return this.stamper.set(video, 'skip');
+    }
+    if (!t.exempt && this.stamper.get(video) === 'skip') {
+      this.reset(t);
+      this.stamper.set(video, this.pendingState());
+    }
     if (t.dead) return;
 
     // A clean poster reveals the frame shown before playback; frames take over on play.
-    if (video.poster && this.stamper.get(video) !== 'blocked') void this.checkPoster(video, t);
+    if ((t.posterSrc ?? '') !== video.poster) {
+      t.posterSrc = video.poster;
+      if (!t.recent.length) {
+        this.stamper.set(video, this.pendingState());
+      }
+    }
+    if (video.poster && !t.recent.length) void this.checkPoster(video, t);
   }
 
   /** Playback started again after a block: re-arm and let frames decide. */
   onPlay(video: HTMLVideoElement): void {
     const t = this.tracks.get(video);
+    if (t) t.pausedByUs = false;
     if (!t || t.dead || !this.settings?.enabled) return;
     t.nextAt = 0;
     if (this.stamper.get(video) === 'blocked') {
@@ -174,6 +211,7 @@ export class VideoWatcher {
     if (!this.settings?.enabled) return;
     const t = this.tracks.get(video);
     if (t) {
+      t.generation++;
       t.drm = true;
       t.dead = true;
       t.verdict = 'skip';
@@ -183,12 +221,15 @@ export class VideoWatcher {
   }
 
   private async checkPoster(video: HTMLVideoElement, t: Track): Promise<void> {
+    const generation = this.generation;
+    const revision = t.generation;
+    const posterSrc = video.poster;
     try {
-      const key = this.client.key(video.poster);
-      const r = this.client.cached(key) ?? (await this.client.classify(key, { url: video.poster }, false));
-      if (this.tracks.get(video) !== t) return;
+      const key = this.client.key(posterSrc);
+      const r = this.client.cached(key) ?? (await this.client.classify(key, { url: posterSrc }, false));
+      if (!this.current(video, t, generation, revision) || video.poster !== posterSrc || t.posterSrc !== posterSrc || t.recent.length) return;
       const d = decide(r, PRESETS[this.settings!.preset]);
-      if (d === 'blocked') this.stamper.set(video, 'blocked');
+      if (d === 'blocked' && video.paused) this.stamper.set(video, 'blocked');
       else if (d === 'clean' && video.paused && !t.recent.length) this.stamper.set(video, 'clean');
     } catch {
       /* poster is a hint, not a verdict */
@@ -207,9 +248,10 @@ export class VideoWatcher {
     // When the classifier is saturated, sample one video at a time: live frames must
     // not starve the images and backgrounds waiting behind them.
     const budget = this.avgLatency > SLOW_CLASSIFIER_MS ? 1 : MAX_CONCURRENT;
+    for (const v of this.candidates) if (this.tiny(v)) this.stamper.set(v, 'skip');
     const live = [...this.candidates]
       .filter((v) => v.isConnected && v.readyState >= 2 && !this.busy.has(v))
-      .filter((v) => v.videoWidth >= MIN_SIDE && v.videoHeight >= MIN_SIDE)
+      .filter((v) => !this.tiny(v))
       .filter((v) => {
         const t = this.tracks.get(v);
         if (!t || t.dead || t.exempt || now < t.nextAt) return false;
@@ -218,8 +260,13 @@ export class VideoWatcher {
         if (waitForChannel && !v.hasAttribute('data-tz-author') && now - t.seenAt < CHANNEL_WAIT_MS) return false;
         return !v.paused || t.stillAt !== v.currentTime;
       })
-      .sort((a, b) => b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight)
-      .slice(0, budget);
+      .sort((a, b) => {
+        const ta = this.tracks.get(a)!;
+        const tb = this.tracks.get(b)!;
+        return Number(!!ta.verdict) - Number(!!tb.verdict) || ta.nextAt - tb.nextAt ||
+          b.videoWidth * b.videoHeight - a.videoWidth * a.videoHeight;
+      })
+      .slice(0, Math.max(0, budget - this.inFlight));
     await Promise.all(live.map((v) => this.sample(v)));
   }
 
@@ -233,7 +280,10 @@ export class VideoWatcher {
   private async sample(video: HTMLVideoElement): Promise<void> {
     const t = this.tracks.get(video);
     if (!t) return;
+    const generation = this.generation;
+    const revision = t.generation;
     this.busy.add(video);
+    this.inFlight++;
     const started = performance.now();
     let failed = false;
     this.noteDuration(video, t);
@@ -244,13 +294,13 @@ export class VideoWatcher {
         frame = grabFrame(video);
       } catch {
         // Tainted canvas: one whole-file verdict stands in for the frame window.
-        const flagged = await this.classifyWholeFile(video, t, tag);
-        if (this.tracks.get(video) === t) this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
+        const flagged = await this.classifyWholeFile(video, t, generation, revision, tag);
+        if (this.current(video, t, generation, revision)) this.setVerdict(video, t, flagged ? 'blocked' : 'clean');
         return;
       }
       const still = video.paused ? video.currentTime : undefined;
       const r = await this.client.classifyFrame(frame, tag);
-      if (this.tracks.get(video) !== t) return;
+      if (!this.current(video, t, generation, revision)) return;
       t.failures = 0;
       // A frame can't be re-scored on tiles after the fact, so 'refine' (borderline)
       // is doubtful: enough to keep a video hidden, not enough to hide a shown one.
@@ -261,7 +311,7 @@ export class VideoWatcher {
       if (still !== undefined) this.recordStill(video, t, still, result, obvious);
       else this.record(video, t, result, obvious);
     } catch (e) {
-      if (this.tracks.get(video) === t) {
+      if (this.current(video, t, generation, revision)) {
         if (e instanceof Unreadable) {
           t.dead = true;
           this.stamper.set(video, 'error');
@@ -276,22 +326,29 @@ export class VideoWatcher {
       if (__DEV__) console.warn('[toolize] video sample failed', t.src.slice(0, 120), e);
     } finally {
       this.busy.delete(video);
+      this.inFlight--;
       this.noteLatency(performance.now() - started);
-      t.nextAt = performance.now() + (failed ? RETRY_MS : t.every);
+      if (this.current(video, t, generation, revision)) t.nextAt = performance.now() + (failed ? RETRY_MS : t.every);
     }
   }
 
   /** Cross-origin file without CORS: let the offscreen doc fetch and sample it. */
-  private async classifyWholeFile(video: HTMLVideoElement, t: Track, tag?: string): Promise<boolean> {
+  private async classifyWholeFile(video: HTMLVideoElement, t: Track, generation: number, revision: number, tag?: string): Promise<boolean> {
     if (t.drm) {
       this.onDrm(video);
       return false;
     }
     if (t.fileTried || !/^https?:/.test(t.src)) throw new Unreadable('no readable pixels');
-    t.fileTried = true;
     const key = this.client.key(`video:${t.src}`);
     try {
-      const r = await this.client.classify(key, { videoUrl: t.src }, false, tag);
+      let r = await this.client.classify(key, { videoUrl: t.src }, false, tag);
+      if (!this.current(video, t, generation, revision)) return false;
+      if (decide(r, PRESETS[this.settings!.preset]) === 'refine') {
+        r = await this.client.classify(key, { videoUrl: t.src }, true, tag);
+        if (!this.current(video, t, generation, revision)) return false;
+      }
+      t.fileTried = true;
+      t.failures = 0;
       t.dead = true; // whole-file verdict: no point sampling further
       return decide(r, PRESETS[this.settings!.preset]) !== 'clean';
     } catch (e) {
@@ -319,17 +376,15 @@ export class VideoWatcher {
       const exempt =
         (allow && isLive(v)) || (!!trusted?.size && trusted.has(channelKey(v.getAttribute('data-tz-author') ?? '')));
       if (exempt) {
-        if (!t.exempt && t.verdict === 'blocked' && v.paused) v.play().catch(() => {}); // we paused it
+        if (!t.exempt) t.generation++;
+        this.resume(v, t);
         t.exempt = true;
         t.verdict = 'skip';
         this.stamper.set(v, 'skip'); // no-op when already skip
       } else if (t.exempt) {
         t.exempt = false;
         // Back to a normal video: judge it from scratch.
-        t.recent = [];
-        t.cleanStreak = 0;
-        t.every = FIRST_SAMPLE_MS;
-        t.nextAt = 0;
+        this.reset(t);
         this.stamper.set(v, this.pendingState());
       }
     }
@@ -387,7 +442,38 @@ export class VideoWatcher {
     this.stamper.set(video, verdict);
     // YouTube is never paused: its players don't recover well from being paused under
     // them, and a wrong pause there (a cooking video) cost more than the blur alone.
-    if (verdict === 'blocked' && pause && !t.live && !isYouTube(location.hostname)) video.pause();
+    if (verdict === 'blocked' && pause && !t.live && !isYouTube(location.hostname) && !video.paused) {
+      t.pausedByUs = true;
+      video.pause();
+    }
+  }
+
+  private current(video: HTMLVideoElement, t: Track, generation: number, revision: number): boolean {
+    return !!this.settings?.enabled && this.generation === generation && this.tracks.get(video) === t &&
+      t.generation === revision && !t.exempt;
+  }
+
+  private resume(video: HTMLVideoElement, t: Track): void {
+    if (t.pausedByUs && video.paused) void video.play().catch(() => {});
+    t.pausedByUs = false;
+  }
+
+  private reset(t: Track, restore = false): void {
+    t.generation++;
+    t.recent = [];
+    t.cleanStreak = 0;
+    t.stillAt = undefined;
+    t.nextAt = 0;
+    t.every = FIRST_SAMPLE_MS;
+    t.posterSrc = undefined;
+    t.fileTried = false;
+    t.dead = t.drm;
+    if (!restore) t.verdict = undefined;
+  }
+
+  private tiny(video: HTMLVideoElement): boolean {
+    return video.readyState >= 1 && video.videoWidth > 0 && video.videoHeight > 0 &&
+      video.videoWidth < MIN_SIDE && video.videoHeight < MIN_SIDE;
   }
 
   private pendingState(): State {

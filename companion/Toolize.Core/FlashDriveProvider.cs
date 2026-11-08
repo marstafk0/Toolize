@@ -66,10 +66,12 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
                         $"the key on {drive.Letter} is on a different drive than the one enrolled");
             }
 
+            // The hardware serial comes from WMI, which can fail transiently; an unreadable
+            // serial is no evidence of anything, so only a different one counts.
             if (!string.IsNullOrEmpty(key.HardwareSerial))
             {
                 var actualHardware = drive.HardwareSerial ?? ReadHardwareSerial(root);
-                if (actualHardware is null || !string.Equals(actualHardware, key.HardwareSerial, StringComparison.OrdinalIgnoreCase))
+                if (actualHardware is not null && !string.Equals(actualHardware, key.HardwareSerial, StringComparison.OrdinalIgnoreCase))
                     return new UnlockCheck(UnlockStatus.Clone, key,
                         $"the key on {drive.Letter} is on a different drive than the one enrolled");
             }
@@ -175,12 +177,31 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
     }
 
     /// <summary>
+    /// Hardware serials by (drive letter, volume serial). WMI takes tens to hundreds of
+    /// milliseconds per query and the key is polled every second; a stick's serial can't
+    /// change while it stays plugged in, and a different stick in the same letter has a
+    /// different volume serial, so the pair is a safe cache key.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> HardwareSerials = new();
+
+    /// <summary>
     /// Reads the physical USB disk's hardware serial via WMI (Win32_DiskDrive.SerialNumber
-    /// joined through Win32_LogicalDiskToPartition), best effort.
+    /// joined through Win32_LogicalDiskToPartition), best effort, cached per plugged-in drive.
     /// </summary>
     public static string? ReadHardwareSerial(string root)
     {
         if (!OperatingSystem.IsWindows()) return null;
+        var volume = ReadVolumeSerial(root);
+        if (volume is null) return QueryHardwareSerial(root); // not a real volume: no caching
+        var cacheKey = $"{Path.GetPathRoot(root)}|{volume}";
+        if (HardwareSerials.TryGetValue(cacheKey, out var cached) && cached is not null) return cached;
+        var serial = QueryHardwareSerial(root);
+        if (serial is not null) HardwareSerials[cacheKey] = serial; // a failed read is retried next time
+        return serial;
+    }
+
+    private static string? QueryHardwareSerial(string root)
+    {
         try
         {
             var rootPath = Path.GetPathRoot(root) ?? root;

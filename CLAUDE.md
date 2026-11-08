@@ -67,7 +67,8 @@ about what each tier actually guarantees.
   blurring ordinary videos mid-watch. **Only that confirmed rule pauses** — a paused
   video yields no new frames, so pausing on a doubtful frame froze Shorts and feed
   previews blurred for good. **YouTube is never paused** (user's call): flagged video
-  there is blurred only. A video clean from its first frame shows at once; after
+  there is blurred only. Paused stills follow the same window: a shown video seeked onto
+  one mildly flagged frame stays shown. A video clean from its first frame shows at once; after
   anything doubtful it needs 3 consecutive clean frames. Back off to
   one sample every few seconds while a verdict is stable; drop to one video at a time
   when the classifier is saturated, so live frames never starve images and backgrounds.
@@ -105,7 +106,9 @@ about what each tier actually guarantees.
   text, `redirect`) in `extension/sites/*.json`, so new sites are data, not code. The
   companion embeds the same files (`FeedCatalog`) to draw its checkboxes. Settings key
   `feeds["<site>.<toggle>"]`; turning one off is weakening. The protection master
-  switch (`enabled`) turns all feed control and the bot shield off too. Done: YouTube
+  switch (`enabled`) turns everything off: blur, site blocking (static ruleset, dynamic
+  rules, learning), word filter, feed control and the bot shield. Turning it off is
+  weakening, so it needs the key when the app is installed. Done: YouTube
   (home, Shorts + `/shorts/ID` → `/watch?v=ID`, recommendations, comments, end screens)
   and Facebook (news feed = the whole `div[role=main]` on the home path, since its inner
   markup is obfuscated; stories, reels, video tab — unverified against a logged-in
@@ -157,8 +160,13 @@ about what each tier actually guarantees.
 - **Extension ↔ service:** Native Messaging host bridges to the same pipe. The service
   is the single source of truth for settings; `chrome.storage` is a cache. The popup
   sends *requests*, the service validates them against lock state and writes back.
-  Heartbeat every 30s. If the extension is policy-installed but gets no heartbeat, it
-  blocks browsing rather than trusting its own cached settings.
+  Heartbeat every 30s. Changes made in the GUI/CLI reach the browser at once: the
+  native host long-polls `watch-settings` (a settings revision; held ≤25 s) and writes
+  an unsolicited `{id:"push", data:{settings, enforced}}` to the port. The popup sends
+  only its patch (the service overlays it), and a local generation counter discards
+  hello/heartbeat replies that were in flight when a newer change landed. If the
+  extension is policy-installed but gets no heartbeat, it blocks browsing rather than
+  trusting its own cached settings.
 - **Strengthening never needs the key. Weakening always does.** That rule applies to
   every setting, in every client: thresholds, mode, feed toggles, site list removals,
   pausing, uninstall.
@@ -340,7 +348,8 @@ Toolize/                      # repo root (the product is "Toolize")
   `npm run corpus` for threshold regressions, `npm run serve-test` for manual pages.
 - **Companion:** `dotnet run --project companion/Toolize.Service -- --console` runs the
   daemon in the foreground with a dev pipe name and a dev state directory, so it never
-  fights the installed service. GUI and CLI take `--pipe dev` to match.
+  fights the installed service (`--console` implies `--dev`; a dev instance never writes
+  HKLM policy or kills browsers, even elevated). GUI and CLI take `--dev` to match.
 - **Installed machines never get a dev build.** They pull from the release host, so the
   loop is: commit → `node tools/release.mjs --channel dev` → click Update in the app.
 - **Versioning:** one `version.json` at the repo root is stamped into the extension

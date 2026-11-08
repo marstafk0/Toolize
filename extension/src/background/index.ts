@@ -135,8 +135,7 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
 
     case 'setSettings':
       // The desktop app decides when it's installed; otherwise we apply it locally.
-      loadSettings()
-        .then((current) => requestSettings(msg.patch as Partial<Settings>, current))
+      requestSettings(msg.patch as Partial<Settings>)
         .then(
           (settings) => sendResponse({ ok: true, settings, viaCompanion: isConnected() } satisfies SetSettingsResult),
           (e: Error & { code?: string }) =>

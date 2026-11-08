@@ -18,14 +18,14 @@ public static class Pipe
             new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
             PipeAccessRights.ReadWrite, AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(
-            new SecurityIdentifier(WellKnownSidType.CreatorOwnerSid, null),
-            PipeAccessRights.FullControl, AccessControlType.Allow));
-        security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
         security.AddAccessRule(new PipeAccessRule(
             new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
+        // Creating the next instance of the pipe needs more than ReadWrite on the existing
+        // one. Installed, the service is SYSTEM and already covered; this is for a dev run
+        // as a plain user (and the tests), where the second client could never connect.
         if (WindowsIdentity.GetCurrent().User is { } currentUser)
         {
             security.AddAccessRule(new PipeAccessRule(

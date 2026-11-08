@@ -81,10 +81,9 @@ public sealed class PipeServer(string pipeName, RequestHandler handler, ILogger<
             {
                 request = JsonSerializer.Deserialize<Request>(line, Protocol.Json)
                           ?? throw new InvalidOperationException("empty request");
-                // watch-settings is a long-poll read verb and is exempt from the 10 s
-                // per-connection timeout once its request line has been read.
-                var handleToken = request.Verb == Verbs.WatchSettings ? ct : readCts.Token;
-                response = await handler.HandleAsync(request, handleToken);
+                // The read timeout covers only the request line: handling may legitimately
+                // take longer (watch-settings holds ~25 s, apply-update downloads a file).
+                response = await handler.HandleAsync(request, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {

@@ -44,9 +44,16 @@ about what each tier actually guarantees.
   flat-colour/gradient negatives. It runs in the offscreen doc via onnxruntime-web on
   **WebGPU only** (~2.5 ms/image in batches of 8; WASM is ~470 ms, too slow), and sees
   the whole image squashed to 224px. When it ran, `decide()` blocks on
-  `safety > t.safety || nsfwjs.sexy > t.sexyBesideSafety` (balanced 0.5 / 0.85), with no
-  NSFWJS tiles. Without WebGPU, or if it isn't up within 20 s, NSFWJS decides alone as
-  before. Held out, through the extension: 98.1% NSFW caught at 2.6% FP, against
+  `safety > t.safety || nsfwjs.sexy > t.sexyBesideSafety || nsfwjs.hentai > t.hentaiBesideSafety`
+  (balanced 0.5 / 0.85 / 0.5), with no NSFWJS tiles. `pornBesideSafety` is disabled
+  (`null`) in every preset: qualifying porn triggers added FPs without recovering
+  another labelled NSFW item. Drawn-style recall on the full original dataset replay:
+  98.72% → 98.86% (+0.14 pp); independent five-fold heads: 94.24% → 95.02% (+0.78 pp).
+  Commons safe FP: 1.59% → 1.86% (+0.27 pp, 5/1,885 extra). Dataset drawn-style FP
+  also rises (full replay 1.43% → 4.33%); see `tools/safety-model/anime-gap.md` for
+  counts, all candidates and limitations. Without WebGPU, or if it isn't up within
+  20 s, NSFWJS decides alone as before. The original rule held out, through the
+  extension: 98.1% NSFW caught at 2.6% FP, against
   86.5% / 7.9% for NSFWJS. Unseen hard-negative categories: 4.4% blurred vs 10.1%. The
   79 MB file lives in GitHub release `safety-model-v<N>`, pinned by SHA-256 in
   `extension/models/safety.json`; build.mjs fetches and caches it in `.cache/`. Training,

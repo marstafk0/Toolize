@@ -2,6 +2,7 @@
 
   python train.py <dataset.npz> <corpus.npz> --drop drop.txt [--hidden 0] [--hard-weight 3]
                   [--save head.json] [--split-out test_keys.tsv] [--probs-out probs.npz]
+                  [--cv-probs-out oof.npz]
 
 Dataset labels: nsfw -> block, sfw -> safe. 80/20 split (seed 0); the 20% is never
 trained on. Corpus (Commons): safe/* -> safe, flag/* (swimwear, lingerie) -> block,
@@ -9,6 +10,7 @@ evaluated leave-one-category-out so each picture is scored by a head that never 
 its category.
 """
 import argparse, json, collections
+import time
 import numpy as np
 import torch, torch.nn as nn
 
@@ -19,6 +21,7 @@ ap.add_argument('--hard-weight', type=float, default=3.0)
 ap.add_argument('--hidden', type=int, default=0)
 ap.add_argument('--epochs', type=int, default=40)
 ap.add_argument('--save'); ap.add_argument('--split-out'); ap.add_argument('--probs-out')
+ap.add_argument('--cv-probs-out', help='five-fold out-of-fold dataset probabilities; alone skips the regular evaluation')
 a = ap.parse_args()
 torch.manual_seed(0)
 
@@ -29,6 +32,12 @@ ok = np.isin(d['label'], ['nsfw', 'sfw'])
 X, y, keys = X[ok], y[ok], keys[ok]
 idx = np.random.default_rng(0).permutation(len(X)); cut = int(len(X) * 0.8)
 tr, te = idx[:cut], idx[cut:]
+dropped = set()
+if a.drop:
+    dropped = {l.strip() for l in open(a.drop, encoding='utf8') if l.strip()}
+    # Keep the original held-out split, including suspect labels, for a fair
+    # before/after comparison. Only training rows may be removed.
+    tr = tr[np.array([k not in dropped for k in keys[tr]])]
 if a.split_out:
     with open(a.split_out, 'w', encoding='utf8') as f:
         for i in te:
@@ -37,7 +46,6 @@ if a.split_out:
 c = np.load(a.corpus)
 CX = c['emb'].astype(np.float32); clab = c['label']; ckey = c['key']
 if a.drop:
-    dropped = {l.strip() for l in open(a.drop, encoding='utf8') if l.strip()}
     keep = np.array([k not in dropped for k in ckey])
     CX, clab, ckey = CX[keep], clab[keep], ckey[keep]
 cy = np.array([0 if l.startswith('safe/') else 1 for l in clab])
@@ -71,6 +79,25 @@ def prob(m, X):
     with torch.no_grad():
         return torch.sigmoid(m(torch.tensor(X, device='cuda') * 10).squeeze(-1)).cpu().numpy()
 
+
+if a.cv_probs_out:
+    from sklearn.model_selection import StratifiedKFold
+    started = time.perf_counter()
+    Pcv = np.full(len(X), np.nan, np.float32)
+    folds = np.full(len(X), -1, np.int8)
+    for fold, (train, test) in enumerate(StratifiedKFold(5, shuffle=True, random_state=0).split(X, y)):
+        train = train[np.array([k not in dropped for k in keys[train]])]
+        torch.manual_seed(fold)
+        m = fit(np.concatenate([X[train], CX]), np.concatenate([y[train], cy]),
+                np.concatenate([np.ones(len(train)), np.full(len(CX), a.hard_weight)]))
+        Pcv[test] = prob(m, X[test])
+        folds[test] = fold
+        print(f'fold {fold + 1}/5: train={len(train)}, test={len(test)}, elapsed={time.perf_counter() - started:.1f}s', flush=True)
+    assert np.isfinite(Pcv).all() and (folds >= 0).all()
+    np.savez(a.cv_probs_out, key=keys, y=y, p=Pcv, fold=folds)
+    if not any((a.save, a.probs_out, a.split_out)):
+        raise SystemExit(0)
+    torch.manual_seed(0)
 
 cats = sorted(set(clab))
 Pc = np.zeros(len(CX), np.float32)

@@ -15,14 +15,18 @@ export interface Thresholds {
   safety: number;
   /** NSFWJS "sexy" that still blocks beside the safety model (swimwear it underrates). */
   sexyBesideSafety: number;
+  /** Explicit drawn content that the safety model can underrate. Whole-image only. */
+  hentaiBesideSafety: number;
+  /** Optional photographic trigger. Null disables it: measured FPs without recall gain. */
+  pornBesideSafety: number | null;
 }
 
 export type Preset = 'strict' | 'balanced' | 'relaxed';
 
 export const PRESETS: Record<Preset, Thresholds> = {
-  strict: { porn: 0.35, hentai: 0.35, sexy: 0.55, safety: 0.3, sexyBesideSafety: 0.75 },
-  balanced: { porn: 0.55, hentai: 0.55, sexy: 0.75, safety: 0.5, sexyBesideSafety: 0.85 },
-  relaxed: { porn: 0.75, hentai: 0.75, sexy: 0.9, safety: 0.75, sexyBesideSafety: 0.95 },
+  strict: { porn: 0.35, hentai: 0.35, sexy: 0.55, safety: 0.3, sexyBesideSafety: 0.75, hentaiBesideSafety: 0.4, pornBesideSafety: null },
+  balanced: { porn: 0.55, hentai: 0.55, sexy: 0.75, safety: 0.5, sexyBesideSafety: 0.85, hentaiBesideSafety: 0.5, pornBesideSafety: null },
+  relaxed: { porn: 0.75, hentai: 0.75, sexy: 0.9, safety: 0.75, sexyBesideSafety: 0.95, hentaiBesideSafety: 0.7, pornBesideSafety: null },
 };
 
 /**
@@ -42,9 +46,9 @@ export interface ClassifyResult {
   /**
    * P(block) from the safety model (CLIP RN50 + a head trained on labelled NSFW/SFW
    * images and hard negatives), max over frames. Present when it ran — it needs WebGPU;
-   * without it, decisions fall back to NSFWJS alone. When present it decides, with NSFWJS
-   * "sexy" as a second trigger: held out, 98.1% of NSFW caught at 2.6% false positives,
-   * against 86.5% / 7.9% for NSFWJS alone (tools/safety-model/).
+   * without it, decisions fall back to NSFWJS alone. When present it decides alongside
+   * whole-image NSFWJS sexy, hentai and an optional high-confidence porn trigger
+   * (tools/safety-model/).
    */
   safety?: number;
   width: number;
@@ -61,7 +65,8 @@ export function isExplicit(r: ClassifyResult, t: Thresholds): boolean {
   // Learning blocks a whole site, so it wants a confident call, and one that leans
   // explicit rather than swimwear (NSFWJS tells those apart; the safety model doesn't).
   if (r.safety !== undefined) {
-    return r.safety > Math.max(t.safety, LEARN_SAFETY) && r.whole.porn + r.whole.hentai > r.whole.sexy;
+    return isExplicitBesideSafety(r.whole, t) ||
+      (r.safety > Math.max(t.safety, LEARN_SAFETY) && r.whole.porn + r.whole.hentai > r.whole.sexy);
   }
   const over = (s: Scores) => s.porn > t.porn || s.hentai > t.hentai;
   return over(r.whole) || (!!r.tiles && isBorderline(r.whole, t) && over(r.tiles));
@@ -69,6 +74,10 @@ export function isExplicit(r: ClassifyResult, t: Thresholds): boolean {
 
 export function isFlagged(s: Scores, t: Thresholds): boolean {
   return s.porn > t.porn || s.hentai > t.hentai || s.sexy > t.sexy;
+}
+
+function isExplicitBesideSafety(s: Scores, t: Thresholds): boolean {
+  return s.hentai > t.hentaiBesideSafety || (t.pornBesideSafety !== null && s.porn > t.pornBesideSafety);
 }
 
 /**
@@ -104,9 +113,10 @@ export function isTileable(r: Pick<ClassifyResult, 'width' | 'height'>): boolean
  */
 export function decide(r: ClassifyResult, t: Thresholds): Decision {
   // The safety model sees the whole picture and was trained on the close-ups
-  // that fool NSFWJS (skin, rashes, meat), so its call stands; no tiles. NSFWJS tiles
-  // were themselves a main source of false positives.
-  if (r.safety !== undefined) return r.safety > t.safety || r.whole.sexy > t.sexyBesideSafety ? 'blocked' : 'clean';
+  // that fool NSFWJS (skin, rashes, meat). Whole-image hentai (and porn if enabled)
+  // still catches explicit content it underrates; no NSFWJS tiles beside safety.
+  if (r.safety !== undefined) return r.safety > t.safety || r.whole.sexy > t.sexyBesideSafety ||
+    isExplicitBesideSafety(r.whole, t) ? 'blocked' : 'clean';
   if (isFlagged(r.whole, t)) return 'blocked';
   if (!isBorderline(r.whole, t) || !isTileable(r)) return 'clean';
   if (!r.tiles) return 'refine';

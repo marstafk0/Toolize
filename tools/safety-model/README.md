@@ -72,14 +72,44 @@ $PY train.py work/xl.npz work/corpus.npz --drop work/drop.txt --hidden 512 \
 # RGB 0..1 [B,3,224,224] -> P(block) [B,1]
 $PY export.py RN50 openai work/head.json work/safety.onnx --fp16
 
-# the shipped pipeline on the held-out images, served from the zip in memory
-$PY zipserve.py work/nsfw_detection_xl.zip work/test_keys.tsv 8788 work/results &
-CORPUS_SERVER=http://127.0.0.1:8788 npm run corpus     # in extension/
+# numeric-only dataset scoring (build the extension first; no image display)
+node score-dataset.mjs "$PY" work/nsfw_detection_xl.zip work/xl.npz work/nsfwjs-scores.json
 ```
 
 `evaluate.py` compares decision rules on both sets, joining NSFWJS scores from a corpus
 run with the head's probabilities. `extension/test/onnx-bench.mjs` times a model on
 WebGPU and WASM.
+
+For label-noise checks when the original held-out keys are unavailable, generate
+five-fold out-of-fold probabilities with the same 512-unit head. Each dataset item
+is scored by a head that did not train on it; the independent Commons and synthetic
+negatives remain in each fold's training set. `--drop` accepts exact keys from both
+the dataset and Commons, removes dataset keys from **training only**, and preserves
+the deterministic held-out split for before/after comparisons.
+
+```sh
+$PY train.py work/xl.npz work/corpus-train.npz --hidden 512 --cv-probs-out work/oof.npz
+$PY head-probs.py ../../extension/.cache/safety-<pinned-hash-prefix>.onnx work/xl.npz work/shipped-probs.npz
+node score-dataset.mjs "$PY" work/nsfw_detection_xl.zip work/xl.npz work/nsfwjs-scores.json
+$PY analyze-gap.py work/oof.npz work/shipped-probs.npz work/nsfwjs-scores.json work/commons-results.json work
+```
+
+`corpus-train.npz` concatenates the Commons and 3,000 synthetic embeddings.
+`head-probs.py` recovers the shipped MLP directly from the pinned ONNX, so a newly
+trained head never stands in for the shipped detector. `score-dataset.mjs` uses
+the built MobileNetV2 files with hardware WebGL, whole-image 224px RGB tensors and
+the extension's RGB/255 normalization. Python decodes zip members and resizes them
+with Pillow bicubic, matching the embedding pipeline; this can differ from the
+browser canvas resampling used in production. The scorer creates no image elements,
+image canvas drawings or thumbnails and disables response caching. Only keys, labels and scores
+are written. `TZ_RESUME=1` resumes from its last score checkpoint.
+
+**Explicit training data must never be displayed, rendered, screenshotted,
+thumbnailed, extracted, copied as images, or written as images, including base64.**
+Keep it in its existing archive/folder and decode only in memory. In particular,
+the existing corpus page creates misclassification thumbnails: do not use it for
+explicit datasets. The Commons corpus is the exception. The numeric scorer above
+replaces the historical `zipserve.py` / corpus-page evaluation for explicit data.
 
 ## Choices, measured
 
@@ -93,8 +123,16 @@ WebGPU and WASM.
 - **NudeNet as a veto was rejected.** Both the 320n and 640m models cleared real
   lingerie photos with zero detections.
 - **Gating behind NSFWJS was rejected.** It only adds misses.
-- **Rule.** Block if `safety > t.safety`, or NSFWJS `sexy > t.sexyBesideSafety`
-  (balanced 0.5 / 0.85; strict 0.3 / 0.75; relaxed 0.75 / 0.95).
+- **Rule.** Block if `safety > t.safety`, NSFWJS `sexy > t.sexyBesideSafety`, or
+  whole-image `hentai > t.hentaiBesideSafety` (strict 0.3 / 0.75 / 0.4;
+  balanced 0.5 / 0.85 / 0.5; relaxed 0.75 / 0.95 / 0.7). The optional
+  `pornBesideSafety` trigger is disabled (`null`) in all presets: candidates within
+  the Commons FP budget recovered no additional labelled NSFW items. The selected
+  hentai-only rule adds 5/1,885 Commons safe FPs (+0.265 pp) and recovers 8/71 drawn
+  misses in the shipped-weight full-set replay; independent five-fold heads recover
+  43/319 drawn misses (+0.776 pp recall). The full set includes training items and
+  is not a held-out estimate. Dataset drawn SFW FP also increases. Full measurements,
+  all 61 candidate rules and FP categories: [anime-gap.md](anime-gap.md).
 
 ## Licences
 

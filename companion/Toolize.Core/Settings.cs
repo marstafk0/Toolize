@@ -1,11 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Toolize.Core;
 
 public enum Preset { Strict, Balanced, Relaxed }
 
 public enum RevealMode { Safe, Fast }
+
+public enum YouTubeRestrict { Off, Moderate, Strict }
 
 /// <summary>
 /// The settings of record. The extension keeps a cache of these in chrome.storage, but
@@ -39,6 +42,18 @@ public sealed record Settings
     public bool WordFilter { get; init; } = true;
     /// <summary>The user's own words on top of the built-in list. Removing one is weakening.</summary>
     public List<string> BlockedWords { get; init; } = new();
+
+    /// <summary>
+    /// Force search engines' own SafeSearch (Google, Bing, DuckDuckGo and others) and
+    /// block explicit searches outright. On by default; turning it off needs the key.
+    /// </summary>
+    public bool SafeSearch { get; init; } = true;
+
+    /// <summary>
+    /// YouTube's own Restricted Mode. Lowering it needs the key; raising it never does.
+    /// </summary>
+    [JsonPropertyName("youtubeRestrict")]
+    public YouTubeRestrict YouTubeRestrict { get; init; } = YouTubeRestrict.Off;
 
     /// <summary>
     /// YouTube channels whose videos, Shorts and thumbnails skip the image check, for
@@ -85,6 +100,8 @@ public static class SettingsPolicy
         || FeedsTurnedOff(before, after).Any()
         || (before.WordFilter && !after.WordFilter)
         || WordsRemoved(before, after).Any()
+        || (before.SafeSearch && !after.SafeSearch)
+        || after.YouTubeRestrict < before.YouTubeRestrict
         || ChannelsTrusted(before, after).Any()
         || (before.Enforce && !after.Enforce)
         || (before.BlockIncognito && !after.BlockIncognito)
@@ -134,6 +151,8 @@ public static class SettingsPolicy
         foreach (var key in FeedsTurnedOff(before, after)) list.Add($"showing {FeedCatalog.Describe(key)} again");
         if (before.WordFilter && !after.WordFilter) list.Add("turning off the word filter");
         if (WordsRemoved(before, after).Any()) list.Add("removing blocked words");
+        if (before.SafeSearch && !after.SafeSearch) list.Add("turning off safe search");
+        if (after.YouTubeRestrict < before.YouTubeRestrict) list.Add($"lowering YouTube restricted mode to {after.YouTubeRestrict.ToString().ToLowerInvariant()}");
         foreach (var c in ChannelsTrusted(before, after)) list.Add($"trusting the YouTube channel {c}");
         if (before.Enforce && !after.Enforce) list.Add("turning off enforcement");
         if (before.BlockIncognito && !after.BlockIncognito) list.Add("re-allowing private windows");

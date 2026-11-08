@@ -153,19 +153,23 @@ public sealed class EnforcementService(StateStore store, ILogger<EnforcementServ
     }
 
     /// <summary>Reads back what is actually in the registry, for doctor and the GUI.</summary>
-    public IReadOnlyList<Check> Inspect()
+    public IReadOnlyList<Check> Inspect(Func<string, PolicyValue, bool>? matches = null)
     {
         var checks = new List<Check>();
         if (!OperatingSystem.IsWindows()) return checks;
         var settings = store.Settings;
+        var checkMatch = matches ?? Matches;
 
         foreach (var (name, root) in PolicyPlan.Browsers)
         {
             var wanted = PolicyPlan.For(settings, _extensionId, name);
             if (wanted.Count == 0) continue;
-            var missing = wanted.Where(v => !Matches(root, v)).Select(v => string.IsNullOrEmpty(v.SubKey) ? v.Name : $@"{v.SubKey}\{v.Name}").ToList();
+            var missing = wanted.Where(v => !checkMatch(root, v)).Select(v => string.IsNullOrEmpty(v.SubKey) ? v.Name : $@"{v.SubKey}\{v.Name}").ToList();
+            var present = wanted.Where(v => v.Name is "ForceGoogleSafeSearch" or "ForceYouTubeRestrict" && checkMatch(root, v))
+                .Select(v => v.Name).ToList();
+            var suffix = present.Count > 0 ? $" ({string.Join(", ", present)})" : "";
             checks.Add(new Check($"{name} policy", missing.Count == 0,
-                missing.Count == 0 ? "force-installed and locked down" : $"missing: {string.Join(", ", missing)}",
+                missing.Count == 0 ? $"force-installed and locked down{suffix}" : $"missing: {string.Join(", ", missing)}",
                 Fix: "The service reapplies policy every 30 seconds; check it is running as SYSTEM"));
         }
         return checks;

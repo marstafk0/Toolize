@@ -98,6 +98,20 @@ public static class PolicyPlan
             values.Add(new(AllExtensionsKey, "installation_mode", "blocked"));
         }
 
+        if (settings.SafeSearch)
+        {
+            // Belt to the extension's declarativeNetRequest braces: force Google SafeSearch
+            // across Chrome, Edge and Brave, plus Bing strict SafeSearch on Edge.
+            values.Add(new("", "ForceGoogleSafeSearch", 1));
+            if (edge) values.Add(new("", "ForceBingSafeSearch", 2));
+        }
+
+        if (settings.YouTubeRestrict != YouTubeRestrict.Off)
+        {
+            // 1 = Moderate, 2 = Strict across Chromium browsers.
+            values.Add(new("", "ForceYouTubeRestrict", settings.YouTubeRestrict == YouTubeRestrict.Strict ? 2 : 1));
+        }
+
         return values;
     }
 
@@ -125,6 +139,9 @@ public static class PolicyPlan
         new("", "BrowserAddPersonEnabled", 0),
         new("", "TorDisabled", 1),
         new("", "DeveloperToolsAvailability", 2),
+        new("", "ForceGoogleSafeSearch", 1),
+        new("", "ForceBingSafeSearch", 2),
+        new("", "ForceYouTubeRestrict", 1),
         // 0.5.x dev builds wrote ExtensionSettings as one JSON string. Never wanted now,
         // so listing it here makes the next reconcile delete it.
         new("", "ExtensionSettings", ""),

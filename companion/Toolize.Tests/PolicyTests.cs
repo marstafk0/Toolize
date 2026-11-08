@@ -38,6 +38,63 @@ public sealed class SettingsPolicyTests
         Assert.True(SettingsPolicy.IsWeakening(Base, Base with { BlockAdultSites = false }));
 
     [Fact]
+    public void Turning_off_safe_search_is_weakening_and_turning_it_on_is_not()
+    {
+        Assert.True(Base.SafeSearch);
+        Assert.True(SettingsPolicy.IsWeakening(Base, Base with { SafeSearch = false }));
+        Assert.False(SettingsPolicy.IsWeakening(Base with { SafeSearch = false }, Base));
+        Assert.Contains("turning off safe search", SettingsPolicy.Weakenings(Base, Base with { SafeSearch = false }));
+    }
+
+    [Theory]
+    [InlineData(YouTubeRestrict.Strict, YouTubeRestrict.Moderate, true)]
+    [InlineData(YouTubeRestrict.Moderate, YouTubeRestrict.Off, true)]
+    [InlineData(YouTubeRestrict.Strict, YouTubeRestrict.Off, true)]
+    [InlineData(YouTubeRestrict.Off, YouTubeRestrict.Moderate, false)]
+    [InlineData(YouTubeRestrict.Moderate, YouTubeRestrict.Strict, false)]
+    [InlineData(YouTubeRestrict.Off, YouTubeRestrict.Strict, false)]
+    [InlineData(YouTubeRestrict.Moderate, YouTubeRestrict.Moderate, false)]
+    public void Lowering_youtube_restrict_is_weakening_and_raising_never_needs_the_key(
+        YouTubeRestrict from, YouTubeRestrict to, bool weakening) =>
+        Assert.Equal(weakening, SettingsPolicy.IsWeakening(Base with { YouTubeRestrict = from }, Base with { YouTubeRestrict = to }));
+
+    [Fact]
+    public void Lowering_youtube_restrict_describes_the_target_mode()
+    {
+        Assert.Equal(YouTubeRestrict.Off, Base.YouTubeRestrict);
+        var strict = Base with { YouTubeRestrict = YouTubeRestrict.Strict };
+        Assert.Contains("lowering YouTube restricted mode to moderate",
+            SettingsPolicy.Weakenings(strict, strict with { YouTubeRestrict = YouTubeRestrict.Moderate }));
+        Assert.Contains("lowering YouTube restricted mode to off",
+            SettingsPolicy.Weakenings(strict, strict with { YouTubeRestrict = YouTubeRestrict.Off }));
+    }
+
+    [Fact]
+    public void SafeSearch_and_YouTubeRestrict_serialise_as_expected_and_round_trip_through_Overlay()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(Base with { SafeSearch = true, YouTubeRestrict = YouTubeRestrict.Moderate }, Protocol.Json);
+        Assert.Contains("\"safeSearch\":true", json);
+        Assert.Contains("\"youtubeRestrict\":\"moderate\"", json);
+
+        var strictJson = System.Text.Json.JsonSerializer.Serialize(Base with { YouTubeRestrict = YouTubeRestrict.Strict }, Protocol.Json);
+        Assert.Contains("\"youtubeRestrict\":\"strict\"", strictJson);
+
+        var offJson = System.Text.Json.JsonSerializer.Serialize(Base with { YouTubeRestrict = YouTubeRestrict.Off }, Protocol.Json);
+        Assert.Contains("\"youtubeRestrict\":\"off\"", offJson);
+
+        var patched = SettingsPolicy.Overlay(Base,
+            System.Text.Json.JsonDocument.Parse("""{"safeSearch":false,"youtubeRestrict":"strict"}""").RootElement);
+        Assert.False(patched.SafeSearch);
+        Assert.Equal(YouTubeRestrict.Strict, patched.YouTubeRestrict);
+
+        // Unmentioned fields are preserved across Overlay
+        var preserved = SettingsPolicy.Overlay(patched,
+            System.Text.Json.JsonDocument.Parse("""{"preset":"strict"}""").RootElement);
+        Assert.False(preserved.SafeSearch);
+        Assert.Equal(YouTubeRestrict.Strict, preserved.YouTubeRestrict);
+    }
+
+    [Fact]
     public void Weakenings_are_listed_for_the_user()
     {
         var reasons = SettingsPolicy.Weakenings(Base, Base with { Enabled = false, BlockAdultSites = false });
@@ -311,6 +368,25 @@ public sealed class ExtensionTrackerAndRevisionTests
             var doctorDev = new Toolize.Service.DoctorService(store, tracker, locks, enforcement, dev: true, devPipeExists: () => true);
             var checksDev = await doctorDev.RunAsync(CancellationToken.None);
             Assert.DoesNotContain(checksDev, c => c.Name == "Dev instance");
+
+            // When enforcement is enabled, Inspect reports ForceGoogleSafeSearch / ForceYouTubeRestrict presence per browser.
+            store.UpdateSettings(Settings.Default with { Enforce = true, SafeSearch = true, YouTubeRestrict = YouTubeRestrict.Moderate });
+            var allPresent = enforcement.Inspect((_, _) => true);
+            Assert.Equal(3, allPresent.Count);
+            Assert.All(allPresent, c =>
+            {
+                Assert.True(c.Ok);
+                Assert.Contains("ForceGoogleSafeSearch", c.Detail);
+                Assert.Contains("ForceYouTubeRestrict", c.Detail);
+            });
+
+            var missingSafeSearch = enforcement.Inspect((_, v) => v.Name is not ("ForceGoogleSafeSearch" or "ForceYouTubeRestrict"));
+            Assert.All(missingSafeSearch, c =>
+            {
+                Assert.False(c.Ok);
+                Assert.Contains("ForceGoogleSafeSearch", c.Detail);
+                Assert.Contains("ForceYouTubeRestrict", c.Detail);
+            });
         }
         finally
         {

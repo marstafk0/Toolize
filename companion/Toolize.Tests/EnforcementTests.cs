@@ -103,6 +103,38 @@ public sealed class PolicyPlanTests
     }
 
     [Fact]
+    public void Safe_search_writes_google_on_all_three_and_bing_strict_on_edge_only()
+    {
+        foreach (var browser in AllBrowsers)
+            Assert.Contains(Plan(Enforcing, browser), v => v.SubKey == "" && v.Name == "ForceGoogleSafeSearch" && (int)v.Value == 1);
+
+        Assert.Contains(Plan(Enforcing, "Edge"), v => v.SubKey == "" && v.Name == "ForceBingSafeSearch" && (int)v.Value == 2);
+        Assert.DoesNotContain(Plan(Enforcing, "Chrome"), v => v.Name == "ForceBingSafeSearch");
+        Assert.DoesNotContain(Plan(Enforcing, "Brave"), v => v.Name == "ForceBingSafeSearch");
+
+        foreach (var browser in AllBrowsers)
+        {
+            var off = Plan(Enforcing with { SafeSearch = false }, browser);
+            Assert.DoesNotContain(off, v => v.Name == "ForceGoogleSafeSearch");
+            Assert.DoesNotContain(off, v => v.Name == "ForceBingSafeSearch");
+        }
+    }
+
+    [Fact]
+    public void Youtube_restricted_mode_writes_1_for_moderate_and_2_for_strict()
+    {
+        foreach (var browser in AllBrowsers)
+        {
+            Assert.DoesNotContain(Plan(Enforcing with { YouTubeRestrict = YouTubeRestrict.Off }, browser),
+                v => v.Name == "ForceYouTubeRestrict");
+            Assert.Contains(Plan(Enforcing with { YouTubeRestrict = YouTubeRestrict.Moderate }, browser),
+                v => v.SubKey == "" && v.Name == "ForceYouTubeRestrict" && (int)v.Value == 1);
+            Assert.Contains(Plan(Enforcing with { YouTubeRestrict = YouTubeRestrict.Strict }, browser),
+                v => v.SubKey == "" && v.Name == "ForceYouTubeRestrict" && (int)v.Value == 2);
+        }
+    }
+
+    [Fact]
     public void Everything_we_write_is_also_something_we_can_remove()
     {
         // Turning enforcement off has to restore the browser completely, so every value
@@ -112,8 +144,17 @@ public sealed class PolicyPlanTests
         foreach (var incognito in new[] { true, false })
         foreach (var others in new[] { true, false })
         foreach (var devtools in new[] { true, false })
+        foreach (var safesearch in new[] { true, false })
+        foreach (var yt in new[] { YouTubeRestrict.Off, YouTubeRestrict.Moderate, YouTubeRestrict.Strict })
         {
-            var settings = Enforcing with { BlockIncognito = incognito, BlockOtherExtensions = others, BlockDevTools = devtools };
+            var settings = Enforcing with
+            {
+                BlockIncognito = incognito,
+                BlockOtherExtensions = others,
+                BlockDevTools = devtools,
+                SafeSearch = safesearch,
+                YouTubeRestrict = yt,
+            };
             foreach (var value in Plan(settings, browser))
                 Assert.Contains((value.SubKey, value.Name), owned);
         }

@@ -54,7 +54,7 @@
             <TextBlock Margin="0,10,0,4" Text="Name this key" FontWeight="SemiBold" />
             <TextBox x:Name="KeyName" Padding="6" Text="Partner's key" />
             <TextBlock Margin="0,12,0,0" Foreground="{StaticResource Muted}"
-                       Text="Honest about what this gives you: a file on a stick can be copied, so this is friction rather than proof. Toolize rotates the key every minute it's plugged in, so if a copy and the original are both ever used, it notices and records it. A copy used while the original stays in a drawer won't be spotted until the original comes back." />
+                       Text="Honest about what this gives you: a file on a stick can be copied, and although it is bound to the drive's volume and hardware serials, both can be spoofed with effort — so this is friction rather than proof. Toolize rotates the key every minute it's plugged in, so if a copy and the original are both ever used, it notices and records it. A copy used while the original stays in a drawer won't be spotted until the original comes back." />
         </StackPanel>
 
         <!-- Step 2: unplug/replug verification -->

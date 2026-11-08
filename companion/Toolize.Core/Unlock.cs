@@ -23,6 +23,7 @@ public sealed record EnrolledKey
     /// <summary>Monotonic counter. A key presenting an older value is a clone.</summary>
     public long Counter { get; init; }
     public string? VolumeSerial { get; init; }
+    public string? HardwareSerial { get; init; }
     public DateTimeOffset EnrolledAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastSeen { get; init; }
 }

@@ -29,7 +29,12 @@ builder.Services.AddSingleton(sp => new WatchdogService(
     dev));
 builder.Services.AddSingleton<ExtensionTracker>();
 builder.Services.AddSingleton<UpdateService>();
-builder.Services.AddSingleton<DoctorService>();
+builder.Services.AddSingleton(sp => new DoctorService(
+    sp.GetRequiredService<StateStore>(),
+    sp.GetRequiredService<ExtensionTracker>(),
+    sp.GetRequiredService<LockService>(),
+    sp.GetRequiredService<EnforcementService>(),
+    dev));
 builder.Services.AddSingleton<RequestHandler>();
 builder.Services.AddSingleton(sp => new PipeServer(
     Protocol.PipeName(dev),

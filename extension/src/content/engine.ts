@@ -1,6 +1,8 @@
 import blurCss from '../shared/blur.css';
 import type { StatsReport } from '../shared/messages';
 import type { Settings } from '../shared/settings';
+import { loadSettings } from '../shared/settings';
+import { isYouTube } from '../shared/channels';
 import { BackgroundWatcher } from './backgrounds';
 import { ClassifyClient } from './client';
 import { ImageWatcher } from './images';
@@ -21,7 +23,7 @@ const OBSERVE_OPTS: MutationObserverInit = {
 };
 
 /** Media events worth re-deciding on. `load` doesn't bubble, so these are capture-phase. */
-const MEDIA_EVENTS = ['load', 'error', 'loadeddata', 'play', 'seeked', 'emptied', 'encrypted'];
+const MEDIA_EVENTS = ['load', 'error', 'loadedmetadata', 'loadeddata', 'resize', 'play', 'seeked', 'emptied', 'encrypted'];
 
 /**
  * Ways to get a blurred picture or video out of the page, where the blur can't follow:
@@ -140,7 +142,8 @@ export class BlurEngine {
       const res: LearnSiteResult = await chrome.runtime.sendMessage({ target: 'background', kind: 'learnSite', reason } satisfies LearnSiteRequest);
       // Not learnable here (a big platform, a local address): per-image blur carries
       // on, and this page stops asking.
-      if (res?.blockedUrl) location.replace(res.blockedUrl);
+      const current = await loadSettings();
+      if (res?.blockedUrl && current.enabled && current.blockAdultSites && !this.stopped) location.replace(res.blockedUrl);
     } catch {
       this.learning = false;
     }
@@ -155,7 +158,18 @@ export class BlurEngine {
   private onMutations(records: MutationRecord[]): void {
     for (const m of records) {
       if (m.type === 'childList') {
-        for (const n of m.addedNodes) if (n.nodeType === Node.ELEMENT_NODE) this.scanSubtree(n as Element);
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== Node.ELEMENT_NODE) continue;
+          const el = n as Element;
+          this.scanSubtree(el);
+          if (isYouTube(location.hostname)) {
+            const channel = 'a[href^="/@"], #channel-name, ytd-channel-name';
+            for (const node of [...(el.matches(channel) ? [el] : []), ...el.querySelectorAll(channel)]) {
+              node.closest('ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, yt-lockup-view-model, ytd-playlist-panel-video-renderer')
+                ?.querySelectorAll('img').forEach((img) => this.images.consider(img));
+            }
+          }
+        }
         continue;
       }
       const el = m.target as Element;

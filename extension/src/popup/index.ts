@@ -9,7 +9,7 @@ import type {
 } from '../shared/messages';
 import { CATALOG, feedKey } from '../shared/feeds';
 import { PRESETS, type Preset } from '../shared/policy';
-import { loadSettings, type RevealMode, type Settings } from '../shared/settings';
+import { loadSettings, onSettingsChanged, type RevealMode, type Settings } from '../shared/settings';
 
 // Settings shown here are a cache of what the desktop app holds. When the app is
 // installed it has the final say; without it, the extension manages its own settings.
@@ -123,6 +123,7 @@ async function refreshStats(): Promise<void> {
 
 (async () => {
   buildFeeds();
+  onSettingsChanged(render);
   render(await loadSettings());
   for (const id of ['enabled', 'blockAdultSites', 'wordFilter'] as const) {
     $<HTMLInputElement>(id).addEventListener('change', (e) =>

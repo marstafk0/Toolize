@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, type Settings } from '../shared/settings';
+import { loadSettings } from '../shared/settings';
 import { ADULT_DOMAINS, canLearn, NEVER_BLOCK, siteOf } from '../shared/sites';
 import { authorizeWeakening } from './companion';
 
@@ -65,8 +65,15 @@ export function blockedPageUrl(reason: string, site?: string): string {
 }
 
 async function blockingEnabled(): Promise<boolean> {
-  const { settings } = await chrome.storage.local.get('settings');
-  return (settings as Settings | undefined)?.blockAdultSites ?? DEFAULT_SETTINGS.blockAdultSites;
+  const settings = await loadSettings();
+  return settings.enabled && settings.blockAdultSites;
+}
+
+// Static and dynamic DNR writes share one chain, including list updates and learning.
+let rulesChain: Promise<void> = Promise.resolve();
+export function reconcileDnr(run: () => Promise<void>): Promise<void> {
+  rulesChain = rulesChain.catch((e) => console.warn('[toolize] DNR sync failed', e)).then(run);
+  return rulesChain;
 }
 
 async function readLearned(): Promise<LearnedSite[]> {
@@ -74,9 +81,19 @@ async function readLearned(): Promise<LearnedSite[]> {
 }
 
 /** Rebuilds every dynamic rule from storage. Idempotent; call after any change. */
-export async function syncDynamicRules(): Promise<void> {
+export function syncDynamicRules(): Promise<void> {
+  return reconcileDnr(async () => {
+    let enabled: boolean;
+    do {
+      enabled = await blockingEnabled();
+      await rebuildDynamicRules(enabled);
+    } while (enabled !== await blockingEnabled());
+  });
+}
+
+async function rebuildDynamicRules(enabled: boolean): Promise<void> {
   const rules: chrome.declarativeNetRequest.Rule[] = [];
-  if (await blockingEnabled()) {
+  if (enabled) {
     const update = (await chrome.storage.local.get(UPDATE_KEY))[UPDATE_KEY] as ListUpdate | undefined;
     if (update?.added.length) {
       rules.push({
@@ -159,7 +176,6 @@ export function scheduleListUpdates(): void {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== UPDATE_ALARM) return;
     void (async () => {
-      if (!(await blockingEnabled())) return;
       const last = (await chrome.storage.local.get(UPDATE_KEY))[UPDATE_KEY] as ListUpdate | undefined;
       if (last && Date.now() - last.at < (UPDATE_EVERY_MIN - 60) * 60_000) return;
       await updateList().catch((e) => console.warn('[toolize]', e?.message ?? e));

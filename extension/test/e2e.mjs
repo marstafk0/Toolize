@@ -23,9 +23,11 @@ const BASE = 'http://localhost:8787';
 mkdirSync(artifacts, { recursive: true });
 
 const failures = [];
+let passes = 0;
 const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
   if (!ok) failures.push(name);
+  else passes++;
 };
 
 async function waitFor(fn, { timeout = 30_000, interval = 200 } = {}) {
@@ -38,11 +40,35 @@ async function waitFor(fn, { timeout = 30_000, interval = 200 } = {}) {
   }
 }
 
-const server = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: 'ignore' });
+async function startServer() {
+  for (let attempt = 0; ; attempt++) {
+    const child = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      await new Promise((resolve, reject) => {
+        let output = '';
+        let errors = '';
+        child.stdout.on('data', (chunk) => {
+          output += chunk;
+          if ((output.match(/test server http:/g) ?? []).length === 2) resolve();
+        });
+        child.stderr.on('data', (chunk) => (errors += chunk));
+        child.on('error', reject);
+        child.on('exit', (code) => reject(new Error(errors || `test server exited (${code})`)));
+      });
+      return child;
+    } catch (e) {
+      child.kill();
+      if (attempt || !/EADDRINUSE/.test(e.message)) throw e;
+      console.log('test server port is in use; waiting one minute before retrying once');
+      await new Promise((r) => setTimeout(r, 60_000));
+    }
+  }
+}
+let server;
 const profile = mkdtempSync(join(tmpdir(), 'bb-e2e-'));
 let context;
 try {
-  await new Promise((r) => setTimeout(r, 500));
+  server = await startServer();
   context = await chromium.launchPersistentContext(profile, {
     executablePath: findChromium(),
     headless: !process.env.HEADED,
@@ -51,7 +77,7 @@ try {
     args: [
       `--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
       // Real-looking hostnames for the site-learning tests (localhost is never learned).
-      '--host-resolver-rules=MAP *.test 127.0.0.1',
+      '--host-resolver-rules=MAP *.test 127.0.0.1, MAP pornhub.com 127.0.0.1',
       // WebGPU for the safety model, headless included (NO_GPU runs without it).
       ...(process.env.NO_GPU ? [] : ['--enable-unsafe-webgpu']),
       ...(process.env.NO_GPU ? ['--disable-gpu'] : []),
@@ -136,6 +162,33 @@ try {
   await page.waitForTimeout(300);
   await page.screenshot({ path: join(artifacts, 'test-page.png'), fullPage: false });
 
+  // A delayed fetch failure must not extract a recycled node's new pixels under the
+  // old URL's cache key. Both the page cache and the offscreen cache are exercised by
+  // inserting the original URL again after the old request has settled.
+  const recycle = await context.newPage();
+  await recycle.goto(`${BASE}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
+  await recycle.evaluate(() => {
+    const img = document.createElement('img');
+    img.id = 'recycled';
+    img.dataset.tzTest = '__tz_test_clean__tz_test_fail_once_recycled__tz_test_fetch_failure';
+    img.src = '/img/320x240/recycled-old__tz_test_flag.png';
+    document.body.prepend(img);
+  });
+  await waitFor(() => recycle.evaluate(() => document.getElementById('recycled').getAttribute('data-tz') === 'pending'));
+  await recycle.waitForTimeout(400);
+  await recycle.evaluate(() => (document.getElementById('recycled').src = '/img/320x240/recycled-new__tz_test_clean.png'));
+  await waitFor(() => recycle.evaluate(() => document.getElementById('recycled').getAttribute('data-tz') === 'clean'));
+  await recycle.waitForTimeout(1500);
+  await recycle.evaluate(() => {
+    const img = document.createElement('img');
+    img.id = 'original-again';
+    img.src = '/img/320x240/recycled-old__tz_test_flag.png';
+    document.body.prepend(img);
+  });
+  const unpoisoned = await waitFor(() => recycle.evaluate(() => document.getElementById('original-again').getAttribute('data-tz') === 'blocked'));
+  check('fetch fallback from a recycled image does not poison the old URL cache', !!unpoisoned);
+  await recycle.close();
+
   // ---- phase 2: video
   await page.evaluate(() => window.__setupVideos());
   await page.evaluate(() => document.getElementById('videos').scrollIntoView({ block: 'center' }));
@@ -148,6 +201,52 @@ try {
   const blockedVideos = (videos ?? []).filter((i) => i.expect === 'blocked');
   check('flagged videos are paused, except live ones', blockedVideos.length === 4 && blockedVideos.every((i) => i.paused === !i.live),
     JSON.stringify(blockedVideos.map((i) => `${i.live ? 'live' : 'vod'}:${i.paused}`)));
+
+  // A disable must resume only videos Toolize paused; re-enable must sample a video
+  // that never left the viewport, even if its previous verdict was clean or blocked.
+  await page.evaluate(() => {
+    const flagged = document.querySelector('#videos video[data-tz-test="__tz_test_flag"]');
+    flagged.id = 'switch-video';
+    const still = document.querySelector('#videos video:not([autoplay])[data-tz="blocked"]');
+    still.id = 'user-paused';
+  });
+  await setSettings({ enabled: false });
+  const resumed = await waitFor(() => page.evaluate(() => {
+    const v = document.getElementById('switch-video');
+    return v.getAttribute('data-tz') === 'off' && !v.paused;
+  }), { timeout: 3000, interval: 50 });
+  check('disable resumes a flagged video paused by Toolize and stamps off', !!resumed);
+  check('disable preserves a video the user had paused', await page.evaluate(() => document.getElementById('user-paused').paused));
+  // A clean tag ensures the next verdict cannot just be the restored blocked one.
+  await page.evaluate(() => (document.getElementById('switch-video').dataset.tzTest = '__tz_test_clean'));
+  await setSettings({ enabled: true });
+  const freshVideo = await waitFor(() => page.evaluate(() => document.getElementById('switch-video').getAttribute('data-tz') === 'clean'),
+    { timeout: 3000, interval: 50 });
+  check('re-enable samples the still-visible video afresh within 3 seconds', !!freshVideo);
+  await page.evaluate(() => {
+    const v = document.getElementById('switch-video');
+    v.dataset.tzTest = '__tz_test_flag';
+    v.dispatchEvent(new Event('play'));
+  });
+  await waitFor(() => page.evaluate(() => document.getElementById('switch-video').getAttribute('data-tz') === 'blocked'));
+
+  // Intrinsically tiny videos have a terminal skip state, including after resize.
+  await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 48;
+    c.getContext('2d').fillRect(0, 0, 48, 48);
+    const v = document.createElement('video');
+    Object.assign(v, { id: 'tiny-video', muted: true, autoplay: true, srcObject: c.captureStream(1) });
+    document.getElementById('videos').prepend(v);
+    v.play().catch(() => {});
+    c.getContext('2d').fillRect(0, 0, 48, 48);
+  });
+  const tinyVideo = await waitFor(() => page.evaluate(() => {
+    const v = document.getElementById('tiny-video');
+    return v.videoWidth === 48 && v.videoHeight === 48 && v.getAttribute('data-tz') === 'skip';
+  }), { timeout: 5000 });
+  check('a 48x48 video is skipped rather than left pending', !!tinyVideo);
+  await page.evaluate(() => document.getElementById('tiny-video').remove());
   // One frame over the threshold doesn't blur a video that is already playing in the
   // clear; an obviously explicit one does.
   const addVideo = (id, tag) => page.evaluate(([id, tag]) => {
@@ -272,6 +371,10 @@ try {
   check('disable: every image shown', !!allOff,
     allOff ? '' : JSON.stringify(media(await collect()).filter((i) => i.state !== 'off').map((i) => `${i.kind}:${i.src.slice(-28)}=${i.state}`)));
   await setSettings({ enabled: true, preset: 'balanced' });
+  // A policy change now invalidates video verdicts, including paused stills. Bring
+  // those videos into view so they can be re-judged before comparing every state.
+  await page.evaluate(() => document.getElementById('videos').scrollIntoView({ block: 'center' }));
+  await waitFor(async () => media(await collect()).filter((i) => i.kind === 'video').every((i) => i.state === i.expect));
   // Back to the top: deferred items only re-decide once they are near the viewport.
   await page.evaluate(() => window.scrollTo(0, 0));
   // Backgrounds are only re-checked where the viewport is, so compare media here.
@@ -354,6 +457,27 @@ try {
   check('a site with 3 explicit images is blocked', !!learned, learnPage.url());
   await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('a learned site stays blocked on the next visit', onBlockedPage(learnPage, 'images')(), learnPage.url());
+
+  // The master switch removes both the static list and learned dynamic rules.
+  await setSettings({ enabled: false });
+  await waitFor(async () => sw.evaluate(async () =>
+    !(await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
+    !(await chrome.declarativeNetRequest.getDynamicRules()).length));
+  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  check('master disable lets a learned host load', !learnPage.url().includes('/blocked/'), learnPage.url());
+  const listedPage = await context.newPage();
+  // Real list membership, independent of the development-only test URL rule.
+  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  check('master disable lets a listed adult host load', !listedPage.url().includes('/blocked/'), listedPage.url());
+  await setSettings({ enabled: true });
+  await waitFor(async () => sw.evaluate(async () =>
+    (await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
+    (await chrome.declarativeNetRequest.getDynamicRules()).some((r) => r.condition.requestDomains?.includes('learn.test'))));
+  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  check('re-enable blocks both learned and listed hosts again',
+    onBlockedPage(learnPage, 'images')() && listedPage.url().includes('/blocked/'), `${learnPage.url()} | ${listedPage.url()}`);
+  await listedPage.close();
 
   // Unblock from the blocked page (no desktop app here, so no key to ask for).
   await learnPage.click('#unblock');
@@ -501,6 +625,14 @@ try {
   check('on YouTube a flagged video is blurred but never paused', trust.otherVideo === 'blocked' && !otherPaused, `paused=${otherPaused}`);
   check('a trusted channel\'s videos and thumbnails skip the check; others are still blurred',
     trust.video === 'skip' && !trust.paused && trust.img === 'skip' && trust.otherVideo === 'blocked' && trust.otherImg === 'blocked', JSON.stringify(trust));
+  await yt.evaluate(() => {
+    const a = document.createElement('a');
+    a.href = '/@MaxTheMeatGuy';
+    a.textContent = 'Max the Meat Guy';
+    document.getElementById('img-other').closest('ytd-rich-item-renderer').append(a);
+  });
+  const lateChannel = await waitFor(async () => (await tz('img-other')) === 'skip', { timeout: 3000 });
+  check('a trusted channel link arriving after the thumbnail verdict reconsiders it', !!lateChannel);
   await setSettings({ trustedChannels: [] });
   await yt.close();
 
@@ -568,9 +700,9 @@ try {
   failures.push(`crash: ${e.message}`);
 } finally {
   await context?.close();
-  server.kill();
+  server?.kill();
   rmSync(profile, { recursive: true, force: true });
 }
 
-console.log(`\n${failures.length ? `${failures.length} FAILED` : 'ALL PASSED'} — screenshots in test/.artifacts/`);
+console.log(`\n${passes} passed, ${failures.length} failed — ${failures.length ? 'FAILED' : 'ALL PASSED'} — screenshots in test/.artifacts/`);
 process.exit(failures.length ? 1 : 0);

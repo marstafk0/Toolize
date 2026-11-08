@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, saveSettingsLocal, type Settings } from '../shared/settings';
+import { loadSettings, saveSettingsLocal, type Settings } from '../shared/settings';
 
 /**
  * Link to the Toolize desktop app, over Chrome's native messaging.
@@ -75,7 +75,22 @@ export interface CompanionStats {
 let port: chrome.runtime.Port | null = null;
 let connected = false;
 let seq = 0;
+let generation = 0;
+let cacheChain: Promise<unknown> = Promise.resolve();
+let settingsChain: Promise<unknown> = Promise.resolve();
 const pending = new Map<string, { resolve: (r: PipeResponse) => void; reject: (e: Error) => void }>();
+
+/** Check the generation at write time too: storage writes themselves are asynchronous. */
+function adopt(data: PipeResponse['data'], expected: number): Promise<Settings | null> {
+  const write = cacheChain.catch(() => {}).then(async () => {
+    if (generation !== expected) return null;
+    if (data?.enforced !== undefined) await noteEnforcement(data.enforced === true);
+    if (generation !== expected || !data?.settings) return null;
+    return saveSettingsLocal(data.settings);
+  });
+  cacheChain = write;
+  return write;
+}
 
 function connect(): chrome.runtime.Port | null {
   if (port) return port;
@@ -86,6 +101,11 @@ function connect(): chrome.runtime.Port | null {
       if (waiter) {
         pending.delete(msg.id);
         waiter.resolve(msg);
+      } else if (msg.id === 'push' && msg.ok && msg.data) {
+        // The authority's latest state wins over every response already in flight.
+        connected = true;
+        void adopt({ ...msg.data, enforced: msg.data.enforced === true }, ++generation)
+          .catch((e) => console.warn('[toolize] settings push failed', e));
       }
     });
     p.onDisconnect.addListener(() => {
@@ -144,14 +164,13 @@ export async function authorizeWeakening(what: string): Promise<{ ok: boolean; e
 
 /** Handshake: announce ourselves, adopt the app's settings as authoritative. */
 export async function hello(): Promise<Settings | null> {
+  const started = generation;
   try {
     const version = chrome.runtime.getManifest().version;
     const res = await send('extension-hello', { version, browser: BROWSER });
     connected = res.ok;
     if (!res.ok) return null;
-    await noteEnforcement(res.data?.enforced === true);
-    if (res.data?.settings) return saveSettingsLocal(res.data.settings);
-    return null;
+    return await adopt({ ...res.data, enforced: res.data?.enforced === true }, started);
   } catch {
     connected = false;
     return null;
@@ -159,13 +178,13 @@ export async function hello(): Promise<Settings | null> {
 }
 
 export async function heartbeat(stats: CompanionStats): Promise<void> {
+  const started = generation;
   try {
     const version = chrome.runtime.getManifest().version;
     const res = await send('extension-heartbeat', { version, browser: BROWSER, ...stats });
     connected = res.ok;
     if (!res.ok) return;
-    await noteEnforcement(res.data?.enforced === true);
-    if (res.data?.settings) await saveSettingsLocal(res.data.settings);
+    await adopt({ ...res.data, enforced: res.data?.enforced === true }, started);
   } catch {
     connected = false;
   }
@@ -175,13 +194,32 @@ export async function heartbeat(stats: CompanionStats): Promise<void> {
  * Asks the app to change settings. Returns what the app decided, or throws with its
  * refusal. With no app installed the change is applied locally.
  */
-export async function requestSettings(patch: Partial<Settings>, current: Settings): Promise<Settings> {
-  const next = { ...DEFAULT_SETTINGS, ...current, ...patch };
-  if (!connect()) return saveSettingsLocal(next);
-
-  const res = await send('set-settings', { settings: next });
-  if (!res.ok) throw Object.assign(new Error(res.error ?? 'the app refused the change'), { code: res.code });
-  return saveSettingsLocal((res.data as unknown as Settings) ?? next);
+export function requestSettings(patch: Partial<Settings>): Promise<Settings> {
+  const change = settingsChain.catch(() => {}).then(async () => {
+    const started = generation;
+    let settings: Settings | undefined;
+    let res: PipeResponse | undefined;
+    try {
+      res = await send('set-settings', { settings: patch });
+    } catch (e) {
+      const message = (e as Error)?.message ?? String(e);
+      if (!/not installed|not found|forbidden/i.test(message) || (await readEnforcement()).enforced) throw e;
+      settings = { ...(await loadSettings()), ...patch };
+    }
+    // A refusal from a reachable service is authoritative, even if its error happens
+    // to contain one of the missing-host phrases used for standalone detection.
+    if (res) {
+      if (!res.ok) throw Object.assign(new Error(res.error ?? 'the app refused the change'), { code: res.code });
+      settings = res.data?.settings ?? (res.data as unknown as Settings);
+    }
+    if (!settings) throw new Error('the app returned no settings');
+    // A push received while waiting already contains the authority's newer state.
+    if (generation === started) await adopt({ settings }, ++generation);
+    await cacheChain;
+    return loadSettings();
+  });
+  settingsChain = change;
+  return change;
 }
 
 export function startHeartbeat(getStats: () => Promise<CompanionStats>): void {

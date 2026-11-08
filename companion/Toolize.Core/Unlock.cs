@@ -67,10 +67,11 @@ public interface IUnlockProvider
     /// <summary>Writes a new key to the given target and returns the record to store.</summary>
     EnrolledKey Enroll(string target, string name);
     /// <summary>
-    /// Advances the secret so a copy taken earlier becomes detectable. Returns the
-    /// updated record; the caller persists it.
+    /// Advances the secret so a copy taken earlier becomes detectable. Calls
+    /// <paramref name="persist"/> with the pending state before writing the drive, then
+    /// returns the committed record; the caller persists both.
     /// </summary>
-    EnrolledKey Rotate(EnrolledKey key);
+    EnrolledKey Rotate(EnrolledKey key, Action<EnrolledKey>? persist = null);
 }
 
 public static class Secrets

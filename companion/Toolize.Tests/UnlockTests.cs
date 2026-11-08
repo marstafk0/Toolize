@@ -104,14 +104,20 @@ public sealed class UnlockTests : IDisposable
     {
         var drive = AddDrive("stick");
         var key = Provider.Enroll(drive, "key");
+        EnrolledKey? saved = key;
 
-        // Rotate writes the drive, then returns the record to persist. Simulate a crash
-        // by throwing the returned record away: the drive now holds the NEW secret while
-        // the service still remembers the OLD one.
-        _ = Provider.Rotate(key);
+        // Simulate a crash after the stick write but before the final commit is persisted:
+        // only the first persist call (recording PendingHash before the stick write) lands.
+        var step = 0;
+        _ = Provider.Rotate(key, k =>
+        {
+            if (++step == 1) saved = k;
+        });
 
-        var check = Provider.Check([key]);
-        Assert.Equal(UnlockStatus.Invalid, check.Status); // honest: this is the failure mode…
+        Assert.NotNull(saved!.PendingHash);
+        Assert.Equal(key.Counter, saved.Counter);
+        var check = Provider.Check([saved]);
+        Assert.Equal(UnlockStatus.Verified, check.Status);
     }
 
     [Fact]
@@ -120,12 +126,44 @@ public sealed class UnlockTests : IDisposable
         var drive = AddDrive("stick");
         var key = Provider.Enroll(drive, "key");
 
-        // …and this is why Rotate returns PendingHash first: a caller that persists the
-        // pending record before the drive write still accepts the key afterwards.
-        var rotated = Provider.Rotate(key);
-        var asIfCrashedMidway = key with { PendingHash = rotated.SecretHash };
+        // Whether the crash happened before the stick was written (old secret + counter K
+        // on stick, PendingHash set in store) or after (new secret + counter K+1 on stick,
+        // PendingHash set in store), the key still verifies — and an older clone with
+        // counter < K is still caught as a clone.
+        var beforeStickWrite = key with { PendingHash = Secrets.Hash(Secrets.NewSecret()) };
+        Assert.Equal(UnlockStatus.Verified, Provider.Check([beforeStickWrite]).Status);
 
-        Assert.Equal(UnlockStatus.Verified, Provider.Check([asIfCrashedMidway]).Status);
+        var rotated = Provider.Rotate(key);
+        var afterStickWrite = key with { PendingHash = rotated.SecretHash };
+        Assert.Equal(UnlockStatus.Verified, Provider.Check([afterStickWrite]).Status);
+
+        // PendingHash with wrong counter (e.g. counter K instead of K+1) is rejected.
+        var wrongCounter = rotated with { Counter = rotated.Counter, SecretHash = key.SecretHash, PendingHash = rotated.SecretHash };
+        Assert.Equal(UnlockStatus.Invalid, Provider.Check([wrongCounter]).Status);
+    }
+
+    [Fact]
+    public void Rotation_persists_pending_before_committed_in_state_store()
+    {
+        var stateDir = Path.Combine(_root, "state");
+        var store = new StateStore(stateDir);
+        var drive = AddDrive("stick");
+        var key = Provider.Enroll(drive, "key");
+        store.AddKey(key);
+
+        var snapshots = new List<EnrolledKey>();
+        var final = Provider.Rotate(key, k =>
+        {
+            store.UpdateKey(k);
+            snapshots.Add(store.Keys.Single());
+        });
+
+        Assert.Equal(2, snapshots.Count);
+        Assert.Equal(1, snapshots[0].Counter);
+        Assert.Equal(final.SecretHash, snapshots[0].PendingHash);
+        Assert.Equal(2, snapshots[1].Counter);
+        Assert.Null(snapshots[1].PendingHash);
+        Assert.Equal(UnlockStatus.Verified, Provider.Check(store.Keys).Status);
     }
 
     [Fact]

@@ -53,7 +53,9 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
                     $"the key on {root} is a copy taken earlier (counter {file.Counter}, expected {key.Counter})");
 
             var hash = Secrets.Hash(file.Secret);
-            if (hash != key.SecretHash && hash != key.PendingHash)
+            var matchesCurrent = hash == key.SecretHash && file.Counter == key.Counter;
+            var matchesPending = key.PendingHash is not null && hash == key.PendingHash && file.Counter == key.Counter + 1;
+            if (!matchesCurrent && !matchesPending)
                 return new UnlockCheck(UnlockStatus.Invalid, key, $"the key on {root} doesn't match the enrolled one");
 
             return new UnlockCheck(UnlockStatus.Verified, key, root);
@@ -80,18 +82,30 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
         return key;
     }
 
-    public EnrolledKey Rotate(EnrolledKey key)
+    public EnrolledKey Rotate(EnrolledKey key, Action<EnrolledKey>? persist = null)
     {
         var found = ReadCandidates().FirstOrDefault(c => c.File.Id == key.Id);
         if (found.Root is null) return key; // drive went away mid-check; try again next time
 
         var secret = Secrets.NewSecret();
-        var next = key with { PendingHash = Secrets.Hash(secret), Counter = key.Counter + 1 };
-        // Write the drive first. Crash before it and the old secret still verifies; crash
-        // after and the pending hash does. Either way the key keeps working — a rotation
-        // that bricked the only key would be far worse than a missed rotation.
-        Write(found.Root, new KeyFile { Id = key.Id, Secret = secret, Counter = next.Counter });
-        return next with { SecretHash = next.PendingHash!, PendingHash = null, LastSeen = DateTimeOffset.UtcNow };
+        var nextHash = Secrets.Hash(secret);
+        var pending = key with { PendingHash = nextHash };
+        // Two-phase rotation: (a) record PendingHash (counter unchanged) before touching
+        // the stick; (b) write the stick atomically with Counter + 1; (c) commit
+        // SecretHash = PendingHash, PendingHash = null, Counter + 1. Crash before (b) and
+        // the old secret still verifies; crash after (b) and PendingHash with Counter + 1
+        // verifies. Either way the key is never bricked.
+        persist?.Invoke(pending);
+        Write(found.Root, new KeyFile { Id = key.Id, Secret = secret, Counter = key.Counter + 1 });
+        var committed = pending with
+        {
+            SecretHash = nextHash,
+            PendingHash = null,
+            Counter = key.Counter + 1,
+            LastSeen = DateTimeOffset.UtcNow,
+        };
+        persist?.Invoke(committed);
+        return committed;
     }
 
     private DriveOption? Find(string target)
@@ -160,9 +174,12 @@ public sealed class FlashDriveProvider(Func<IReadOnlyList<DriveOption>>? drives 
     private static void Write(string root, KeyFile file)
     {
         var path = KeyPath(root);
+        var tmp = path + ".tmp";
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (File.Exists(tmp)) File.SetAttributes(tmp, FileAttributes.Normal);
+        File.WriteAllText(tmp, JsonSerializer.Serialize(file, new JsonSerializerOptions(Protocol.Json) { WriteIndented = true }));
         if (File.Exists(path)) File.SetAttributes(path, FileAttributes.Normal); // hidden files can't be overwritten
-        File.WriteAllText(path, JsonSerializer.Serialize(file, new JsonSerializerOptions(Protocol.Json) { WriteIndented = true }));
+        File.Move(tmp, path, overwrite: true);
         try
         {
             File.SetAttributes(path, FileAttributes.Hidden); // tidiness, not protection

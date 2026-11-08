@@ -132,7 +132,7 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   if (process.env.VERBOSE) page.on('console', (m) => m.text().includes('[toolize]') && console.log('    PAGE', m.text()));
   {
-    const tmp = join(artifacts, '.safety-policy.mjs');
+    const tmp = join(artifacts, `.safety-policy-${process.pid}.mjs`); // per run: parallel runs share artifacts/
     await esbuild.build({
       stdin: { contents: "export * from './policy'; export { verdictReasons } from './verdicts';", resolveDir: join(root, 'src/shared') },
       outfile: tmp, bundle: true, format: 'esm', logLevel: 'silent',

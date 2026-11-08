@@ -48,7 +48,8 @@ export const DEFAULT_WORDS: readonly string[] = [
 /** Substrings ONLY in extracted queries, never in a hostname, whole URL or title.
  * Leave out sex, anal, cum, ass and tit: they occur in everyday words. */
 export const STRONG_QUERY_WORDS: readonly string[] = [
-  'porn', 'pron', 'hentai', 'xxx', 'nsfw', 'rule34', 'r34', 'nude', 'nudes', 'naked',
+  // not "pron": it sits inside "pronounce" and "pronoun" (it stays a whole word above)
+  'porn', 'hentai', 'xxx', 'nsfw', 'rule34', 'r34', 'nude', 'nudes', 'naked',
   'boobs', 'tits', 'titties', 'boobies', 'pussy', 'blowjob', 'handjob', 'creampie', 'cumshot', 'milf',
   'onlyfans', 'ahegao', 'futanari', 'doujin', 'ecchi', 'gangbang', 'bdsm', 'lewd', 'hooker', 'dildo',
   'nhentai', 'xvideos', 'pornhub', 'xnxx', 'xhamster', 'brazzers', 'chaturbate', 'yiff', 'e621',

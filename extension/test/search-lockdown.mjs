@@ -18,7 +18,7 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
   const strong = ['freep0rnvideos', 'bigtitsgirls', 'h 3 n t a i', 'only.f4ns', 'freeR34art', 'e 6 2 1 gallery'];
   check('search: concatenated, spaced-out and numeric strong terms match', strong.every(matchesStrongQuery));
   const ordinary = ['sussex university', 'essex analysis', 'middlesex', 'classic analysis curriculum',
-    'reading their height', 'hot tentacle facial hardcore yuri', 'Bikini Bottom'];
+    'reading their height', 'hot tentacle facial hardcore yuri', 'Bikini Bottom', 'how to pronounce gnocchi', 'pronoun list'];
   check('search: ordinary words keep their boundaries after folding', ordinary.every((q) => !matchesWords(re, q) && !matchesStrongQuery(q)));
   check('search: strong substrings do not apply to page titles or whole addresses',
     !matchesWords(re, 'bigtitsgirls') && !matchesWords(re, 'https://freehentaigallery.test/about'));

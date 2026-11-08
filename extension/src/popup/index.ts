@@ -3,6 +3,7 @@ import type {
   EngineInfo,
   GetEngineInfoRequest,
   GetTabStatsRequest,
+  GetTabVerdictsRequest,
   SetSettingsRequest,
   SetSettingsResult,
   TabStats,
@@ -10,6 +11,7 @@ import type {
 import { CATALOG, feedKey } from '../shared/feeds';
 import { PRESETS, type Preset } from '../shared/policy';
 import { loadSettings, onSettingsChanged, type RevealMode, type Settings } from '../shared/settings';
+import type { VerdictEntry } from '../shared/verdicts';
 
 // Settings shown here are a cache of what the desktop app holds. When the app is
 // installed it has the final say; without it, the extension manages its own settings.
@@ -96,6 +98,97 @@ function bindSeg(id: 'preset' | 'mode'): void {
   });
 }
 
+let tabVerdicts: VerdictEntry[] = [];
+let verdictTabId: number | undefined;
+let renderedVerdicts = '';
+
+function visibleVerdicts(): VerdictEntry[] {
+  return tabVerdicts.filter((v) => !$<HTMLInputElement>('verdict-blurred-only').checked || v.decision === 'blocked');
+}
+
+function timeAgo(at: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  return seconds < 60 ? `${seconds}s ago` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function fullScores(v: VerdictEntry): string {
+  const { tiles, ...whole } = v.scores;
+  const lines = [Object.entries(whole).map(([key, value]) => `${key} ${value.toFixed(2)}`).join(' · ')];
+  if (tiles) lines.push(`tiles porn ${tiles.porn.toFixed(2)} · hentai ${tiles.hentai.toFixed(2)}`);
+  lines.push(`${v.preset} · ${v.size.w} × ${v.size.h}`);
+  if (v.frameInfo) {
+    lines.push(`frame ${v.frameInfo.frame} · obvious ${v.frameInfo.obvious} · window ${v.frameInfo.window.join(', ')}`);
+  }
+  if (v.exempt) lines.push(`exempt ${v.exempt}`);
+  return lines.join('\n');
+}
+
+function renderVerdicts(): void {
+  const rows = visibleVerdicts();
+  const signature = JSON.stringify([verdictTabId, rows]);
+  if (signature === renderedVerdicts) {
+    $('verdict-list').querySelectorAll<HTMLElement>('time').forEach((el) => { el.textContent = timeAgo(Number(el.dataset.at)); });
+    return;
+  }
+  renderedVerdicts = signature;
+  const host = $('verdict-list');
+  const expanded = new Set([...host.querySelectorAll<HTMLDetailsElement>('details[open]')].map((el) => el.dataset.key));
+  host.replaceChildren();
+  for (const v of rows) {
+    const row = document.createElement('details');
+    row.className = 'verdict-row';
+    row.dataset.key = JSON.stringify(v);
+    row.open = expanded.has(row.dataset.key);
+    const summary = document.createElement('summary');
+    summary.title = fullScores(v);
+    const meta = document.createElement('span');
+    meta.className = 'verdict-meta';
+    const time = document.createElement('time');
+    time.dataset.at = String(v.at);
+    time.dateTime = new Date(v.at).toISOString();
+    time.textContent = timeAgo(v.at);
+    const kind = document.createElement('span');
+    kind.textContent = v.kind;
+    const pill = document.createElement('span');
+    pill.className = `verdict-pill ${v.decision}`;
+    pill.textContent = v.decision === 'blocked' ? 'blurred' : 'shown';
+    meta.append(time, kind, pill);
+    const why = document.createElement('span');
+    why.textContent = v.why.join('; ');
+    summary.append(meta, why);
+    const scores = document.createElement('div');
+    scores.className = 'verdict-scores';
+    scores.textContent = fullScores(v);
+    row.append(summary, scores);
+    host.append(row);
+  }
+  $('verdict-empty').hidden = rows.length > 0;
+  $('verdict-empty').textContent = $<HTMLInputElement>('verdict-blurred-only').checked
+    ? 'No recent blurred verdicts for this tab.' : 'No recent verdicts for this tab.';
+  $<HTMLButtonElement>('verdict-copy').disabled = rows.length === 0;
+}
+
+function bindVerdicts(): void {
+  const section = $<HTMLDetailsElement>('verdicts');
+  section.open = localStorage.getItem('verdictsOpen') === 'true';
+  section.addEventListener('toggle', (e) => {
+    if (e.target === section) localStorage.setItem('verdictsOpen', String(section.open));
+  });
+  $('verdict-blurred-only').addEventListener('change', renderVerdicts);
+  $('verdict-copy').addEventListener('click', async () => {
+    const text = visibleVerdicts().map((v) =>
+      `${new Date(v.at).toISOString()} (${timeAgo(v.at)}) · ${v.kind} · ${v.decision === 'blocked' ? 'blurred' : 'shown'}\n${v.why.join('; ')}\n${fullScores(v)}`,
+    ).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      $('verdict-copy-status').textContent = 'Copied.';
+    } catch {
+      $('verdict-copy-status').textContent = 'Could not copy. Try again.';
+    }
+  });
+  renderVerdicts();
+}
+
 async function refreshStats(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id != null) {
@@ -105,7 +198,14 @@ async function refreshStats(): Promise<void> {
     $('s-blocked').textContent = String(s.blocked);
     $('s-pending').textContent = String(s.pending);
     $('s-errors').textContent = String(s.errors);
+    const verdicts: VerdictEntry[] = await chrome.runtime.sendMessage({ target: 'background', kind: 'getTabVerdicts', tabId: tab.id } satisfies GetTabVerdictsRequest);
+    verdictTabId = tab.id;
+    tabVerdicts = verdicts;
+  } else {
+    verdictTabId = undefined;
+    tabVerdicts = [];
   }
+  renderVerdicts();
   const companion: CompanionState = await chrome.runtime.sendMessage({ target: 'background', kind: 'companion' });
   $('companion').textContent = companion.installed
     ? 'Toolize app: connected — settings are managed there'
@@ -123,6 +223,7 @@ async function refreshStats(): Promise<void> {
 
 (async () => {
   buildFeeds();
+  bindVerdicts();
   onSettingsChanged(render);
   render(await loadSettings());
   for (const id of ['enabled', 'blockAdultSites', 'wordFilter'] as const) {

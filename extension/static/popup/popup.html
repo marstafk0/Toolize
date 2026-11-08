@@ -73,6 +73,20 @@
     </dl>
   </section>
 
+  <section>
+    <details id="verdicts">
+      <summary><h2>Why was this blurred?</h2></summary>
+      <div class="verdict-tools">
+        <label><input type="checkbox" id="verdict-blurred-only" checked /> Blurred only</label>
+        <button id="verdict-copy" type="button">Copy as text</button>
+      </div>
+      <div id="verdict-list"></div>
+      <p class="hint" id="verdict-empty">No recent blurred verdicts for this tab.</p>
+      <p class="hint">Scores only — nothing about which page or image is stored.</p>
+      <p class="hint" id="verdict-copy-status" role="status"></p>
+    </details>
+  </section>
+
   <p class="hint locked" id="lock-note"></p>
   <footer id="engine">Classifier: starting…</footer>
   <footer id="companion"></footer>

@@ -488,18 +488,18 @@ try {
   await waitFor(async () => sw.evaluate(async () =>
     !(await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
     !(await chrome.declarativeNetRequest.getDynamicRules()).length));
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
   check('master disable lets a learned host load', !learnPage.url().includes('/blocked/'), learnPage.url());
   const listedPage = await context.newPage();
   // Real list membership, independent of the development-only test URL rule.
-  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await listedPage.goto(`http://pornhub.com:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
   check('master disable lets a listed adult host load', !listedPage.url().includes('/blocked/'), listedPage.url());
   await setSettings({ enabled: true });
   await waitFor(async () => sw.evaluate(async () =>
     (await chrome.declarativeNetRequest.getEnabledRulesets()).includes('adult') &&
     (await chrome.declarativeNetRequest.getDynamicRules()).some((r) => r.condition.requestDomains?.includes('learn.test'))));
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await listedPage.goto('http://pornhub.com:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await listedPage.goto(`http://pornhub.com:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('re-enable blocks both learned and listed hosts again',
     onBlockedPage(learnPage, 'images')() && listedPage.url().includes('/blocked/'), `${learnPage.url()} | ${listedPage.url()}`);
   await listedPage.close();
@@ -713,11 +713,103 @@ try {
   // ---- engine info + popup render
   const info = await engineInfo();
   check('classifier loaded', info?.ready, JSON.stringify(info));
+  const feedVerdicts = await sw.evaluate(async (url) => {
+    const tab = (await chrome.tabs.query({})).find((t) => t.url === url);
+    return (await chrome.storage.session.get('tabVerdicts')).tabVerdicts?.[tab?.id] ?? [];
+  }, page.url());
+  check('the large image burst keeps only the most recent 60 verdicts', feedVerdicts.length === 60);
+
+  // Use a small, settled page so the earlier 400-image burst cannot evict the video
+  // verdict before the popup checks. These are existing deterministic score hooks.
+  const verdictPage = await context.newPage();
+  await verdictPage.goto(`${BASE}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
+  await verdictPage.evaluate(() => {
+    for (const tag of ['flag', 'clean']) {
+      const img = new Image();
+      img.src = `/img/320x240/verdict-${tag}__tz_test_${tag}.png`;
+      document.body.append(img);
+    }
+    const video = document.createElement('video');
+    Object.assign(video, { id: 'verdict-video', src: '/media/clip-a.webm', muted: true, loop: true, autoplay: true });
+    video.dataset.tzTest = '__tz_test_flag';
+    document.body.prepend(video);
+    video.play().catch(() => {});
+  });
+  const verdictTabId = await sw.evaluate(async (url) => (await chrome.tabs.query({})).find((t) => t.url === url)?.id, verdictPage.url());
+  await waitFor(() => verdictPage.evaluate(() => document.getElementById('verdict-video').getAttribute('data-tz') === 'blocked'));
   const popup = await context.newPage();
   await popup.setViewportSize({ width: 300, height: 420 });
   await popup.goto(`chrome-extension://${extId}/popup/popup.html`);
-  await popup.waitForTimeout(1200);
-  await popup.screenshot({ path: join(artifacts, 'popup.png') });
+  // Opening popup.html in a test tab makes it active; restore the tab a real popup
+  // would inspect without adding a testing-only popup argument or content hook.
+  await sw.evaluate((tabId) => chrome.tabs.update(tabId, { active: true }), verdictTabId);
+  // Runtime messages must originate in another extension context: a service worker
+  // does not receive its own sendMessage(), whereas the real popup queries this API.
+  const getVerdicts = () => popup.evaluate((tabId) => chrome.runtime.sendMessage({ target: 'background', kind: 'getTabVerdicts', tabId }), verdictTabId);
+  const entries = await waitFor(async () => {
+    const rows = await getVerdicts();
+    return rows.some((v) => v.kind === 'image' && v.decision === 'clean') &&
+      rows.some((v) => v.kind === 'image' && v.decision === 'blocked') &&
+      rows.some((v) => v.kind === 'video' && v.decision === 'blocked') ? rows : null;
+  });
+  check('tab verdicts include image and video classifications', !!entries);
+  check('blocked verdicts explain the applied policy', !!entries && entries.filter((v) => v.decision === 'blocked')
+    .every((v) => v.why.length > 0 && v.why.every((why) => typeof why === 'string' && why.length > 0)));
+  const privateStrings = (value) => typeof value === 'string' ? [value] :
+    value && typeof value === 'object' ? Object.values(value).flatMap(privateStrings) : [];
+  const imageNames = [...new Set((await collect()).filter((v) => v.kind === 'image').map((v) => v.src.split('/').at(-1)).filter(Boolean)),
+    'verdict-flag__tz_test_flag.png', 'verdict-clean__tz_test_clean.png', 'clip-a.webm'];
+  const leaks = (entries ?? []).flatMap(privateStrings).filter((value) => /https?:|\//.test(value) || imageNames.some((name) => value.includes(name)));
+  check('verdicts contain scores only, with no URLs or media names', !!entries && leaks.length === 0, JSON.stringify(leaks));
+  check('video verdict includes the triggering frame and window', !!entries?.some((v) => v.kind === 'video' &&
+    v.frameInfo?.frame === 'flagged' && v.frameInfo.obvious && v.frameInfo.window.at(-1) === 'flagged'));
+  check('tab verdicts are newest first and bounded to 60', !!entries && entries.length <= 60 && entries.every((v, i) => i === 0 || entries[i - 1].at >= v.at));
+  const stored = await sw.evaluate(async (tabId) => (await chrome.storage.session.get('tabVerdicts')).tabVerdicts?.[tabId], verdictTabId);
+  check('verdicts live in session storage', !!stored?.length && stored.length === entries?.length);
+
+  await popup.waitForFunction(() => document.querySelectorAll('.verdict-row').length >= 2);
+  check('verdict section starts collapsed with blurred-only enabled', await popup.evaluate(() =>
+    !document.getElementById('verdicts').open && document.getElementById('verdict-blurred-only').checked));
+  await popup.locator('#verdicts > summary').click();
+  check('blurred-only filter hides clean verdicts', await popup.locator('.verdict-pill.clean').count() === 0 && await popup.locator('.verdict-pill.blocked').count() >= 2);
+  await popup.locator('#verdict-blurred-only').uncheck();
+  check('turning off the filter includes shown verdicts', await popup.locator('.verdict-pill.clean').count() > 0);
+  await popup.locator('.verdict-row > summary').first().click();
+  check('expanded verdict shows full scores', await popup.locator('.verdict-row[open] .verdict-scores').first().innerText().then((text) => /porn \d\.\d{2}/.test(text) && /balanced/.test(text)));
+  // Capture the exact clipboard payload without granting a permission to the extension.
+  await popup.evaluate(() => { navigator.clipboard.writeText = async (text) => { window.__copiedVerdicts = text; }; });
+  await popup.locator('#verdict-blurred-only').check();
+  await popup.locator('#verdict-copy').click();
+  const copied = await popup.evaluate(() => window.__copiedVerdicts);
+  check('copy includes only visible verdicts and full scores', typeof copied === 'string' && copied.includes('blurred') &&
+    !copied.includes('shown') && /porn \d\.\d{2}/.test(copied) && !/https?:|\//.test(copied));
+  await popup.reload();
+  await popup.waitForFunction(() => document.getElementById('verdicts').open);
+  check('popup remembers the verdict section open state', await popup.locator('#verdicts').evaluate((el) => el.open));
+  await popup.locator('.verdict-row > summary').first().click();
+  await popup.screenshot({ path: join(artifacts, 'popup.png'), fullPage: true });
+
+  await popup.evaluate((tabId) => chrome.runtime.sendMessage({ target: 'background', kind: 'clearTabVerdicts', tabId }), verdictTabId);
+  check('clearTabVerdicts removes the current tab buffer', (await getVerdicts()).length === 0);
+  // A stable flagged paused frame must not refill the log after it was cleared.
+  await verdictPage.waitForTimeout(1500);
+  check('stable video verdicts are not recorded again', (await getVerdicts()).length === 0);
+  await verdictPage.evaluate(() => {
+    const img = new Image();
+    img.src = '/img/320x240/verdict-navigation__tz_test_flag.png';
+    document.body.prepend(img);
+  });
+  await waitFor(async () => (await getVerdicts()).length > 0);
+  await verdictPage.goto(`${BASE}/pages/regressions.html`, { waitUntil: 'domcontentloaded' });
+  check('navigation drops the tab verdict buffer', (await getVerdicts()).length === 0);
+  await verdictPage.evaluate(() => {
+    const img = new Image();
+    img.src = '/img/320x240/verdict-close__tz_test_flag.png';
+    document.body.prepend(img);
+  });
+  await waitFor(async () => (await getVerdicts()).length > 0);
+  await verdictPage.close();
+  check('closing a tab drops its verdict buffer', !!(await waitFor(async () => (await getVerdicts()).length === 0)));
 
   check('no page errors', errors.length === 0, errors.join('; '));
   }

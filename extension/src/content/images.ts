@@ -6,6 +6,7 @@ import { ClassifyClient, isFetchFailure } from './client';
 import { extractPixels } from './extract';
 import { NearViewportQueue } from './scheduler';
 import type { Stamper, State } from './state';
+import type { VerdictLog } from './verdicts';
 
 /** Images under this size (px) are icons/emoji: not worth classifying. */
 const MIN_SIDE = 48;
@@ -19,6 +20,7 @@ interface Track {
   key: string;
   generation: number;
   refining?: boolean;
+  verdict?: 'clean' | 'blocked';
   attempts?: number;
   /** Dev timing: when it entered the queue. */
   queuedAt?: number;
@@ -54,6 +56,7 @@ export class ImageWatcher {
   constructor(
     private readonly client: ClassifyClient,
     private readonly stamper: Stamper,
+    private readonly verdicts: VerdictLog,
     /** An image on this page was explicit (porn/hentai), keyed by URL hash. */
     private readonly onExplicit: (key: string) => void = () => {},
   ) {}
@@ -167,7 +170,12 @@ export class ImageWatcher {
     const thresholds = PRESETS[this.settings!.preset];
     const d = decide(r, thresholds);
     if (d === 'blocked' && isExplicit(r, thresholds)) this.onExplicit(t.key);
-    if (d !== 'refine') return this.stamper.set(img, d);
+    if (d !== 'refine') {
+      this.stamper.set(img, d);
+      if (t.verdict !== d) this.verdicts.record('image', d, r, this.settings!.preset);
+      t.verdict = d;
+      return;
+    }
 
     // Borderline: stay hidden and re-score on full-resolution tiles.
     if ((t.attempts ?? 1) > MAX_ATTEMPTS) return this.stamper.set(img, 'error');

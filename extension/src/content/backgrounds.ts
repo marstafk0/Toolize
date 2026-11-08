@@ -1,6 +1,7 @@
 import { decide, PRESETS } from '../shared/policy';
 import type { Settings } from '../shared/settings';
 import type { ClassifyClient } from './client';
+import type { VerdictLog } from './verdicts';
 
 /** Backgrounds smaller than this are sprites, buttons and icons. */
 const MIN_SIDE = 100;
@@ -45,6 +46,7 @@ export class BackgroundWatcher {
     private readonly client: ClassifyClient,
     private readonly roots: () => ShadowRoot[],
     private readonly onChange: () => void,
+    private readonly verdicts: VerdictLog,
   ) {}
 
   get blockedCount(): number {
@@ -144,13 +146,17 @@ export class BackgroundWatcher {
     const key = this.client.key(url);
     try {
       const known = this.client.cached(key);
-      const r = known ?? (await this.client.classify(key, { url }, false));
+      let r = known ?? (await this.client.classify(key, { url }, false));
       if (!this.current(el, url, generation)) return;
       const t = PRESETS[this.settings.preset];
       let d = decide(r, t);
-      if (d === 'refine') d = decide(await this.client.classify(key, { url }, true), t);
+      if (d === 'refine') {
+        r = await this.client.classify(key, { url }, true);
+        d = decide(r, t);
+      }
       if (!this.current(el, url, generation)) return;
       d === 'blocked' ? this.hide(el) : this.reveal(el);
+      if (d !== 'refine') this.verdicts.record('background', d, r, this.settings.preset);
     } catch (e) {
       // Fail safe: a background we couldn't classify is hidden, and losing a background
       // image costs the page far less than losing an <img>.

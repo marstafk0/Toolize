@@ -11,6 +11,7 @@ import type {
   UnlearnSiteResult,
 } from '../shared/messages';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../shared/settings';
+import { MAX_TAB_VERDICTS, type VerdictEntry } from '../shared/verdicts';
 import { hello, isConnected, requestSettings, startHeartbeat } from './companion';
 import { learn, reconcileDnr, scheduleListUpdates, syncDynamicRules, unlearn, updateList } from './blocklist';
 
@@ -90,21 +91,43 @@ function updateStats(fn: (store: StatsStore) => number | null): void {
   });
 }
 
-chrome.tabs.onRemoved.addListener((tabId) =>
+chrome.tabs.onRemoved.addListener((tabId) => {
   updateStats((s) => {
     delete s[tabId];
     return null;
-  }),
-);
+  });
+  void updateVerdicts((s) => { delete s[tabId]; });
+});
 
 chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status === 'loading' && info.url) {
+  if (info.status === 'loading') {
     updateStats((s) => {
       delete s[tabId];
       return tabId;
     });
+    void updateVerdicts((s) => { delete s[tabId]; });
   }
 });
+
+// Session-only, shared across frames, and serialized so simultaneous batches cannot
+// overwrite each other. No media/page identifiers are included in the entries.
+const VERDICTS_KEY = 'tabVerdicts';
+type VerdictStore = Record<string, VerdictEntry[]>;
+let verdictsChain: Promise<unknown> = Promise.resolve();
+
+async function readVerdicts(): Promise<VerdictStore> {
+  return ((await chrome.storage.session.get(VERDICTS_KEY))[VERDICTS_KEY] as VerdictStore | undefined) ?? {};
+}
+
+function updateVerdicts(fn: (store: VerdictStore) => void): Promise<void> {
+  const next = verdictsChain.then(async () => {
+    const store = await readVerdicts();
+    fn(store);
+    await chrome.storage.session.set({ [VERDICTS_KEY]: store });
+  });
+  verdictsChain = next.catch(() => {});
+  return next;
+}
 
 // ---------------------------------------------------------------- messages
 
@@ -131,6 +154,23 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
 
     case 'getTabStats':
       readStats().then((s) => sendResponse(sumStats(s[msg.tabId])));
+      return true;
+
+    case 'verdicts': {
+      const tabId = sender.tab?.id;
+      if (tabId == null || !msg.entries.length) return false;
+      void updateVerdicts((s) => {
+        s[tabId] = [...(s[tabId] ?? []), ...msg.entries].sort((a, b) => a.at - b.at).slice(-MAX_TAB_VERDICTS);
+      });
+      return false;
+    }
+
+    case 'getTabVerdicts':
+      verdictsChain.then(readVerdicts).then((s) => sendResponse((s[msg.tabId] ?? []).slice().reverse()), () => sendResponse([]));
+      return true;
+
+    case 'clearTabVerdicts':
+      updateVerdicts((s) => { delete s[msg.tabId]; }).then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
       return true;
 
     case 'setSettings':

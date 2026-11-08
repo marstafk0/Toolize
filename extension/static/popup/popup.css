@@ -65,13 +65,36 @@ section { padding: 10px 0; border-top: 1px solid var(--line); }
 details summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; }
 details summary::-webkit-details-marker { display: none; }
 details summary::after { content: "Show"; font-size: 11px; color: var(--muted); }
-details[open] summary::after { content: "Hide"; }
+details[open] > summary::after { content: "Hide"; }
 details summary h2 { margin: 0; }
 h3 { font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
 .feed { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; }
 .feed span.label { font-size: 12px; }
 
 #lock-note:empty { display: none; }
+
+.verdict-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 10px 0 6px; font-size: 11px; }
+.verdict-tools label { display: flex; align-items: center; gap: 3px; }
+.verdict-tools input { margin: 0; accent-color: var(--accent); }
+.verdict-tools button { border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; background: var(--seg-bg); color: var(--fg); font: inherit; cursor: pointer; }
+.verdict-tools button:disabled { opacity: .5; cursor: default; }
+#verdict-list { max-height: 240px; overflow-y: auto; }
+.verdict-row { padding: 8px 0; border-top: 1px solid var(--line); font-size: 11px; }
+.verdict-row summary { display: block; position: relative; padding-right: 13px; }
+.verdict-row summary::after { content: "+"; position: absolute; right: 1px; top: 0; }
+.verdict-row[open] summary::after { content: "−"; }
+.verdict-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 3px; }
+.verdict-meta time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict-pill { border-radius: 8px; padding: 1px 6px; font-weight: 600; }
+.verdict-pill.blocked { background: #fbe7e4; color: #9f2d23; }
+.verdict-pill.clean { background: #e0f0e7; color: #215c40; }
+.verdict-scores { margin-top: 6px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+#verdict-copy-status:empty { display: none; }
+@media (prefers-color-scheme: dark) {
+  .verdict-pill.blocked { background: #492723; color: #ffb4aa; }
+  .verdict-pill.clean { background: #203d30; color: #a0d9ba; }
+}
+
 #lock-note { color: #b03a2e; margin: 8px 0 0; }
 
 footer { border-top: 1px solid var(--line); padding-top: 8px; font-size: 11px; color: var(--muted); }

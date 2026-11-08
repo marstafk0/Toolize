@@ -1,4 +1,5 @@
 import type { ClassifyResult } from './policy';
+import type { VerdictEntry } from './verdicts';
 
 /**
  * Media handed to the classifier.
@@ -43,6 +44,24 @@ export interface StatsReport {
 export interface GetTabStatsRequest {
   target: 'background';
   kind: 'getTabStats';
+  tabId: number;
+}
+
+export interface VerdictsReport {
+  target: 'background';
+  kind: 'verdicts';
+  entries: VerdictEntry[];
+}
+
+export interface GetTabVerdictsRequest {
+  target: 'background';
+  kind: 'getTabVerdicts';
+  tabId: number;
+}
+
+export interface ClearTabVerdictsRequest {
+  target: 'background';
+  kind: 'clearTabVerdicts';
   tabId: number;
 }
 
@@ -134,6 +153,9 @@ export type Message =
   | ClassifyRequest
   | StatsReport
   | GetTabStatsRequest
+  | VerdictsReport
+  | GetTabVerdictsRequest
+  | ClearTabVerdictsRequest
   | GetEngineInfoRequest
   | SetSettingsRequest
   | GetCompanionRequest;

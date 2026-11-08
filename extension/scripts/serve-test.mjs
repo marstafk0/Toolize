@@ -22,7 +22,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pagesDir = join(root, 'test/pages');
 const corpusDir = join(root, 'test/corpus');
 const mediaDir = join(tmpdir(), 'toolize-test-media');
-const PORTS = [Number(process.env.PORT ?? 8787), Number(process.env.PORT ?? 8787) + 1];
+const port = Number(process.env.TZ_TEST_PORT ?? process.env.PORT ?? 8787);
+const PORTS = [port, port + 1];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
@@ -64,6 +65,13 @@ function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
   const send = (status, body, type = 'text/plain', headers = {}) => {
+    // Existing HTML/JS fixtures use 8787/8788 as template ports. Keep cross-origin
+    // images, srcdoc and recorded-video URLs on this server when a parallel run uses
+    // TZ_TEST_PORT, while retaining PORT for the standalone development server.
+    if (typeof body !== 'string' && /text\/html|javascript/.test(type)) body = body.toString('utf8');
+    if (typeof body === 'string' && /text\/html|javascript/.test(type)) {
+      body = body.replace(/:(8787|8788)\b/g, (_, p) => `:${port + Number(p) - 8787}`);
+    }
     res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers });
     res.end(body);
   };

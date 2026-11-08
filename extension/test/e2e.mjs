@@ -6,20 +6,29 @@
 //   HEADED=1 npm run test:e2e     (watch it)
 //   NO_GPU=1 npm run test:e2e     (GPU-less machine: exercises the WASM backend)
 //   CHROMIUM=/path/to/chrome      (override browser; branded Chrome ignores --load-extension)
+//   TEST_FILTER='^(A|B)[0-9]'     (only switch/false-blur regressions; regex on case names)
+//   TEST_FILTER='legacy'         (only the original, sequential suite)
+//   TZ_TEST_PORT=18877           (server uses this port and the following port)
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 import { chromium } from 'playwright-core';
 import { findChromium, isolatedDist } from './chromium.mjs';
+import { runSwitchAndFalseBlur } from './switch-and-false-blur.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = isolatedDist(join(root, 'dist'));
+// Only these two harness-created temp directories may be recursively removed.
+const isHarnessTemp = (path, prefix) => dirname(resolve(path)) === resolve(tmpdir()) && basename(path).startsWith(prefix);
+if (!isHarnessTemp(dist, 'tz-dist-')) throw new Error(`unexpected isolated extension path: ${dist}`);
 const artifacts = join(root, 'test/.artifacts');
-const BASE = 'http://localhost:8787';
+const PORT = Number(process.env.TZ_TEST_PORT ?? 8787);
+const BASE = `http://localhost:${PORT}`;
+const filter = process.env.TEST_FILTER ? new RegExp(process.env.TEST_FILTER) : null;
 mkdirSync(artifacts, { recursive: true });
 
 const failures = [];
@@ -40,20 +49,29 @@ async function waitFor(fn, { timeout = 30_000, interval = 200 } = {}) {
   }
 }
 
+// Wait for THIS child's two listeners, rather than silently using another test run's
+// server when a port is occupied. TZ_TEST_PORT also reaches the fixtures it serves.
+// A port in use (another run on this machine) gets one retry after a minute.
 async function startServer() {
   for (let attempt = 0; ; attempt++) {
-    const child = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [join(root, 'scripts/serve-test.mjs')], {
+      stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TZ_TEST_PORT: String(PORT) },
+    });
     try {
       await new Promise((resolve, reject) => {
         let output = '';
         let errors = '';
+        const timer = setTimeout(() => reject(new Error('test server startup timed out')), 10000);
         child.stdout.on('data', (chunk) => {
           output += chunk;
-          if ((output.match(/test server http:/g) ?? []).length === 2) resolve();
+          if (output.includes(`localhost:${PORT}\n`) && output.includes(`localhost:${PORT + 1}\n`)) {
+            clearTimeout(timer);
+            resolve();
+          }
         });
-        child.stderr.on('data', (chunk) => (errors += chunk));
-        child.on('error', reject);
-        child.on('exit', (code) => reject(new Error(errors || `test server exited (${code})`)));
+        child.stderr.on('data', (chunk) => { errors += chunk; });
+        child.once('error', (e) => { clearTimeout(timer); reject(e); });
+        child.once('exit', (code) => { clearTimeout(timer); reject(new Error(errors || `test server exited (${code})`)); });
       });
       return child;
     } catch (e) {
@@ -66,6 +84,7 @@ async function startServer() {
 }
 let server;
 const profile = mkdtempSync(join(tmpdir(), 'bb-e2e-'));
+if (!isHarnessTemp(profile, 'bb-e2e-')) throw new Error(`unexpected test profile path: ${profile}`);
 let context;
 try {
   server = await startServer();
@@ -77,7 +96,7 @@ try {
     args: [
       `--disable-extensions-except=${dist}`, `--load-extension=${dist}`,
       // Real-looking hostnames for the site-learning tests (localhost is never learned).
-      '--host-resolver-rules=MAP *.test 127.0.0.1, MAP pornhub.com 127.0.0.1',
+      '--host-resolver-rules=MAP *.test 127.0.0.1, MAP pornhub.com 127.0.0.1, MAP tube8.com 127.0.0.1',
       // WebGPU for the safety model, headless included (NO_GPU runs without it).
       ...(process.env.NO_GPU ? [] : ['--enable-unsafe-webgpu']),
       ...(process.env.NO_GPU ? ['--disable-gpu'] : []),
@@ -98,6 +117,12 @@ try {
   const booted = await waitFor(async () => (await engineInfo())?.ready && (await engineInfo()));
   check('model cold start', !!booted, booted ? `load+warm-up ${booted.loadMs} ms (${booted.backend}), ready after ${Date.now() - tBoot} ms` : '');
 
+  const regressions = await runSwitchAndFalseBlur({ context, sw, setSettings, waitFor, check, filter, port: PORT, artifacts });
+  if (filter && !filter.test('legacy') && regressions.length === 0) throw new Error(`TEST_FILTER matched no cases: ${filter}`);
+  // The original suite is sequential and shares fixtures; keep it as one named group.
+  if (!filter || filter.test('legacy')) {
+  await setSettings({ enabled: true, preset: 'balanced', mode: 'safe', blockAdultSites: true, feeds: {}, wordFilter: true, trustedChannels: [] });
+  await sw.evaluate(async () => { await chrome.storage.local.set({ learnedSites: [] }); await self.__tz.syncDynamicRules(); });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -445,7 +470,7 @@ try {
   // ---- learning: a site with several explicit images is blocked from then on
   const learnPage = await context.newPage();
   const onBlockedPage = (p, reason) => () => p.url().includes('/blocked/blocked.html') && p.url().includes(`reason=${reason}`);
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' });
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' });
   await learnPage.evaluate(() => {
     for (let i = 0; i < 3; i++) {
       const img = document.createElement('img');
@@ -455,7 +480,7 @@ try {
   });
   const learned = await waitFor(onBlockedPage(learnPage, 'images'), { timeout: 20_000 });
   check('a site with 3 explicit images is blocked', !!learned, learnPage.url());
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('a learned site stays blocked on the next visit', onBlockedPage(learnPage, 'images')(), learnPage.url());
 
   // The master switch removes both the static list and learned dynamic rules.
@@ -484,11 +509,11 @@ try {
   // The page sends itself back to the site; let that finish rather than race it.
   await waitFor(() => !learnPage.url().includes('/blocked/'), { timeout: 10_000 });
   await waitFor(async () => (await sw.evaluate(() => chrome.storage.local.get('learnedSites'))).learnedSites?.length === 0);
-  await learnPage.goto('http://learn.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await learnPage.goto(`http://learn.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('Unblock on the blocked page lets the site load again', !learnPage.url().includes('/blocked/'), learnPage.url());
 
   // A self-labelled adult page is blocked on sight.
-  await learnPage.goto('http://rated.test:8787/pages/rated.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await learnPage.goto(`http://rated.test:${PORT}/pages/rated.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   const labelled = await waitFor(onBlockedPage(learnPage, 'label'), { timeout: 10_000 });
   check('a page carrying the RTA adult label is blocked', !!labelled, learnPage.url());
   await learnPage.close();
@@ -498,18 +523,18 @@ try {
   const seed = new Set(JSON.parse(readFileSync(join(root, 'src/shared/adult-domains.json'), 'utf8')));
   const dropped = shipped.find((d) => !seed.has(d));
   const fresh = ['# test list', ...shipped.filter((d) => d !== dropped), 'fresh-list.test'].join('\n');
-  await fetch('http://localhost:8787/upload/blocklist.txt', { method: 'POST', body: fresh });
-  const update = await sw.evaluate((url) => self.__tz.updateList(url), 'http://localhost:8787/media/blocklist.txt');
+  await fetch(`http://localhost:${PORT}/upload/blocklist.txt`, { method: 'POST', body: fresh });
+  const update = await sw.evaluate((url) => self.__tz.updateList(url), `http://localhost:${PORT}/media/blocklist.txt`);
   const listPage = await context.newPage();
-  await listPage.goto('http://fresh-list.test:8787/pages/frame.html', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await listPage.goto(`http://fresh-list.test:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   check('a domain added to the list since release is blocked after the daily update',
     listPage.url().includes('/blocked/blocked.html'), `${JSON.stringify(update)} -> ${listPage.url()}`);
   const allowRule = (await sw.evaluate(() => chrome.declarativeNetRequest.getDynamicRules())).find((r) => r.action.type === 'allow');
   check('a domain dropped from the list is let through again', !!allowRule?.condition.requestDomains?.includes(dropped),
     `${dropped}: ${JSON.stringify(allowRule?.condition.requestDomains?.slice(0, 3))}`);
   // A tiny (truncated or hijacked) list must not wipe protection.
-  await fetch('http://localhost:8787/upload/tiny.txt', { method: 'POST', body: 'example.com\n' });
-  const tiny = await sw.evaluate((url) => self.__tz.updateList(url).then(() => 'applied', (e) => e.message), 'http://localhost:8787/media/tiny.txt');
+  await fetch(`http://localhost:${PORT}/upload/tiny.txt`, { method: 'POST', body: 'example.com\n' });
+  const tiny = await sw.evaluate((url) => self.__tz.updateList(url).then(() => 'applied', (e) => e.message), `http://localhost:${PORT}/media/tiny.txt`);
   check('a list far smaller than the shipped one is refused', tiny !== 'applied', tiny);
   await listPage.close();
 
@@ -529,7 +554,7 @@ try {
   {
     const hp = await context.newPage();
     const lands = async (host) => {
-      await hp.goto(`http://${host}:8787/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await hp.goto(`http://${host}:${PORT}/pages/frame.html`, { waitUntil: 'domcontentloaded' }).catch(() => {});
       return hp.url().includes('/blocked/blocked.html') && !hp.url().includes('reason=words');
     };
     const blockedHosts = ['bestxxxvideos.test', 'free-milf-clips.test', 'nude-gallery.test', 'www.sex.test'];
@@ -552,7 +577,7 @@ try {
   await setSettings({ feeds: { 'youtube.home': true, 'youtube.shorts': true, 'youtube.related': true } });
   const yt = await context.newPage();
   const shown = (sel) => yt.evaluate((s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== 'none'; }, sel);
-  await yt.goto('http://youtube.test:8787/watch?v=learn1', { waitUntil: 'domcontentloaded' });
+  await yt.goto(`http://youtube.test:${PORT}/watch?v=learn1`, { waitUntil: 'domcontentloaded' });
   await waitFor(async () => !(await shown('#grid')), { timeout: 5000 });
   check('YouTube feed toggles hide the home grid, Shorts and recommendations',
     !(await shown('#grid')) && !(await shown('#shorts-shelf')) && !(await shown('#guide-shorts')) && !(await shown('#related')),
@@ -574,7 +599,7 @@ try {
   await waitFor(async () => !(await shown('#sections')), { timeout: 3000 });
   check('the Comments toggle hides comments', !(await shown('#sections')));
 
-  await yt.goto('http://youtube.test:8787/shorts/ent1', { waitUntil: 'domcontentloaded' });
+  await yt.goto(`http://youtube.test:${PORT}/shorts/ent1`, { waitUntil: 'domcontentloaded' });
   await waitFor(() => yt.url().includes('/watch?v=ent1'), { timeout: 5000 });
   check('a Shorts link opens as a normal video', yt.url().endsWith('/watch?v=ent1'), yt.url());
 
@@ -639,14 +664,14 @@ try {
   await setSettings({ feeds: { 'facebook.feed': true, 'facebook.stories': true, 'facebook.reels': true } });
   const fb = await context.newPage();
   const fbShown = (sel) => fb.evaluate((s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== 'none'; }, sel);
-  await fb.goto('http://facebook.test:8787/', { waitUntil: 'domcontentloaded' });
+  await fb.goto(`http://facebook.test:${PORT}/`, { waitUntil: 'domcontentloaded' });
   await waitFor(async () => !(await fbShown('#feed')), { timeout: 5000 });
   check('Facebook home page middle (feed, stories) and reels hidden',
     !(await fbShown('#feed')) && !(await fbShown('#stories')) && !(await fbShown('#reels-link')));
-  await fb.goto('http://facebook.test:8787/groups/woodworking', { waitUntil: 'domcontentloaded' });
+  await fb.goto(`http://facebook.test:${PORT}/groups/woodworking`, { waitUntil: 'domcontentloaded' });
   await new Promise((r) => setTimeout(r, 800));
   check('a group feed is not the news feed, so it stays', (await fbShown('#feed')) && !(await fbShown('#reel-post')));
-  await fb.goto('http://facebook.test:8787/reel/123', { waitUntil: 'domcontentloaded' });
+  await fb.goto(`http://facebook.test:${PORT}/reel/123`, { waitUntil: 'domcontentloaded' });
   await waitFor(() => new URL(fb.url()).pathname === '/', { timeout: 5000 });
   check('a reel link goes to the home page with Reels hidden', new URL(fb.url()).pathname === '/', fb.url());
   await setSettings({ feeds: {} });
@@ -654,13 +679,13 @@ try {
 
   // ---- word filter: blocked words in an address or title; YouTube tiles and videos
   const wf = await context.newPage();
-  await wf.goto('http://localhost:8787/pages/frame.html?q=nude+photography+tips', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await wf.goto(`http://localhost:${PORT}/pages/frame.html?q=nude+photography+tips`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await waitFor(() => wf.url().includes('reason=words'), { timeout: 5000 });
   check('a search for blocked words is blocked', wf.url().includes('reason=words'), wf.url());
-  await wf.goto('http://localhost:8787/pages/frame.html?q=sussex+bikini+bottom+essex', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await wf.goto(`http://localhost:${PORT}/pages/frame.html?q=sussex+bikini+bottom+essex`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await new Promise((r) => setTimeout(r, 1000));
   check('whole words only, and Bikini Bottom is fine', !wf.url().includes('/blocked/'), wf.url());
-  await wf.goto('http://youtube.test:8787/watch?v=learn1', { waitUntil: 'domcontentloaded' });
+  await wf.goto(`http://youtube.test:${PORT}/watch?v=learn1`, { waitUntil: 'domcontentloaded' });
   await wf.evaluate(() => {
     const tile = (id, title) => {
       const t = document.createElement('ytd-compact-video-renderer');
@@ -695,6 +720,7 @@ try {
   await popup.screenshot({ path: join(artifacts, 'popup.png') });
 
   check('no page errors', errors.length === 0, errors.join('; '));
+  }
 } catch (e) {
   console.error(e);
   failures.push(`crash: ${e.message}`);
@@ -702,6 +728,7 @@ try {
   await context?.close();
   server?.kill();
   rmSync(profile, { recursive: true, force: true });
+  rmSync(dist, { recursive: true, force: true });
 }
 
 console.log(`\n${passes} passed, ${failures.length} failed — ${failures.length ? 'FAILED' : 'ALL PASSED'} — screenshots in test/.artifacts/`);

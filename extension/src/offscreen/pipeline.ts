@@ -302,6 +302,8 @@ function devOverride(req: ClassifyJob, whole: Scores, tiles?: Scores, safety?: n
   // Video frames arrive as data URLs, so elements carry the tag as an attribute instead.
   const tag = req.testTag ?? ('url' in source ? source.url : 'videoUrl' in source ? source.videoUrl : '');
   const neutral: Scores = { drawing: 0, hentai: 0, neutral: 1, porn: 0, sexy: 0 };
+  if (tag.includes('__tz_test_safety_only')) return [neutral, undefined, 0.95];
+  if (tag.includes('__tz_test_safety_borderline')) return [neutral, undefined, 0.6];
   // Force a low safety score even on GPU-less runs, so these exercise the safety
   // decision branch rather than accidentally passing through the NSFWJS fallback.
   if (tag.includes('__tz_test_hentai_only')) return [{ ...neutral, neutral: 0.1, hentai: 0.9 }, undefined, 0.1];

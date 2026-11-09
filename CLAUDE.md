@@ -67,11 +67,15 @@ about what each tier actually guarantees.
 - **Safe-reveal (default):** `<img>` and `<video>` are CSS-blurred before first paint
   and only revealed after classifying clean. "Detect, then blur" is an option, not the
   default. CSS backgrounds are the documented exception — see below.
-- **Video:** sample playing videos near the viewport ~1/s. Before a video is first
-  shown, any flagged or borderline frame in the last 3 keeps it blurred (safe reveal).
-  Once it plays in the clear, it takes 2 flagged frames of the last 3, or one obviously
-  explicit frame (porn/hentai > threshold + 0.2), to blur it: single odd frames were
-  blurring ordinary videos mid-watch. **Only that confirmed rule pauses** — a paused
+- **Video:** sample playing videos near the viewport ~1/s. With the safety model,
+  safety > 0.97 **and** NSFWJS porn, hentai or sexy above its preset threshold is
+  obviously explicit; safety alone never bypasses the window. Borderline safety ≤ 0.7
+  with NSFWJS porn+hentai+sexy ≤ 0.3 counts as clean for video, so noise cannot strand previews.
+  Other safety and NSFWJS hits retain the existing preset thresholds. Before a video
+  is first shown, any flagged or borderline frame in the last 3 keeps it blurred
+  (safe reveal). Once it plays in the clear, it takes 2 flagged frames of the last 3,
+  or one obviously explicit frame, to blur it. Without safety, the immediate rule
+  remains porn/hentai > threshold + 0.2. **Only that confirmed rule pauses** — a paused
   video yields no new frames, so pausing on a doubtful frame froze Shorts and feed
   previews blurred for good. **YouTube is never paused** (user's call): flagged video
   there is blurred only. Paused stills follow the same window: a shown video seeked onto

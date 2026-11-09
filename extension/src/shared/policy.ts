@@ -95,15 +95,15 @@ export function isBorderline(s: Scores, t: Thresholds): boolean {
 
 /** Explicit by a wide margin: one such video frame is enough to blur. */
 export const OBVIOUS_MARGIN = 0.2;
-/** The same for the safety model, whose scores sit nearer 0 and 1. */
-const OBVIOUS_SAFETY_MARGIN = 0.4;
 /** Safety score an image needs to count toward learning a whole site as adult. */
 const LEARN_SAFETY = 0.85;
 /** NSFWJS hentai an image needs, beside the safety model, to count toward learning a site. */
 const LEARN_HENTAI = 0.85;
 
 export function isObviouslyExplicit(r: ClassifyResult, t: Thresholds): boolean {
-  if (r.safety !== undefined) return r.safety > Math.min(0.97, t.safety + OBVIOUS_SAFETY_MARGIN);
+  // Safety alone spikes on ordinary video. Bypassing the temporal window needs
+  // agreement from NSFWJS as well; repeated safety hits still use the window.
+  if (r.safety !== undefined) return r.safety > 0.97 && isFlagged(r.whole, t);
   const s = r.whole;
   return s.porn > t.porn + OBVIOUS_MARGIN || s.hentai > t.hentai + OBVIOUS_MARGIN;
 }

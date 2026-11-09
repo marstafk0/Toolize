@@ -84,7 +84,7 @@ class Unreadable extends Error {}
 
 /**
  * Video classification: samples frames from playing videos ~1/s and blurs on the
- * sliding window, pausing anything flagged.
+ * sliding window, pausing confirmed hits outside YouTube and live streams.
  *
  * Pixels come from the page canvas (works for MSE/blob: streams, same-origin files and
  * CORS-enabled files). A cross-origin file without CORS taints that canvas, so the
@@ -294,6 +294,7 @@ export class VideoWatcher {
     this.noteDuration(video, t);
     try {
       const tag = __DEV__ ? video.dataset.tzTest : undefined;
+      const at = __DEV__ ? video.currentTime : undefined;
       let frame: string;
       try {
         frame = grabFrame(video);
@@ -313,11 +314,24 @@ export class VideoWatcher {
       // A frame can't be re-scored on tiles after the fact, so 'refine' (borderline)
       // is doubtful: enough to keep a video hidden, not enough to hide a shown one.
       const th = PRESETS[this.settings!.preset];
-      const decision = decide(r, th);
+      // Borderline safety alone is noisy on ordinary video, and treating it as
+      // doubtful strands new previews behind the three-clean-frame requirement.
+      // Keep stronger safety hits and NSFWJS-supported hits in the normal window;
+      // image policy and the NSFWJS-only fallback retain their existing thresholds.
+      const safetyNoise = r.safety !== undefined && r.safety <= 0.7 &&
+        r.whole.porn + r.whole.hentai + r.whole.sexy <= 0.3;
+      const decision = safetyNoise ? 'clean' : decide(r, th);
       const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
       const obvious = isObviouslyExplicit(r, th);
       if (still !== undefined) this.recordStill(video, t, still, result, obvious, r);
       else this.record(video, t, result, obvious, r);
+      // Numeric diagnostics only: never log a frame's pixels or source. This entire
+      // branch is removed from production; the playback harness listens to debug.
+      if (__DEV__) console.debug('[toolize:video-frame]', JSON.stringify({
+        t: Date.now(), at, safety: r.safety,
+        porn: r.whole.porn, hentai: r.whole.hentai, sexy: r.whole.sexy, neutral: r.whole.neutral,
+        frame: result, obvious, window: [...t.recent], verdict: t.verdict,
+      }));
     } catch (e) {
       if (this.current(video, t, generation, revision)) {
         if (e instanceof Unreadable) {

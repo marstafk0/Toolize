@@ -55,6 +55,7 @@ interface Track {
   dead?: boolean;
   /** Last decision, so re-enabling protection doesn't re-sample from scratch. */
   verdict?: State;
+  revealed?: boolean;
   /** Current gap between samples (grows while the verdict stays stable). */
   every: number;
   nextAt: number;
@@ -318,9 +319,12 @@ export class VideoWatcher {
       // doubtful strands new previews behind the three-clean-frame requirement.
       // Keep stronger safety hits and NSFWJS-supported hits in the normal window;
       // image policy and the NSFWJS-only fallback retain their existing thresholds.
-      const safetyNoise = r.safety !== undefined && r.safety <= 0.7 &&
-        r.whole.porn + r.whole.hentai + r.whole.sexy <= 0.3;
-      const decision = safetyNoise ? 'clean' : decide(r, th);
+      const nsfw = r.whole.porn + r.whole.hentai + r.whole.sexy;
+      const startup = __DEV__ && !t.revealed && t.verdict !== 'clean';
+      const safetyNoise = r.safety !== undefined && (startup
+        ? r.safety <= 0.9 && nsfw <= 0.15
+        : r.safety <= 0.7 && nsfw <= 0.3);
+      const decision = decide(safetyNoise ? { ...r, safety: 0 } : r, th);
       const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
       const obvious = isObviouslyExplicit(r, th);
       if (still !== undefined) this.recordStill(video, t, still, result, obvious, r);
@@ -483,6 +487,7 @@ export class VideoWatcher {
       }
       this.verdicts.record('video', verdict, { ...r, width: video.videoWidth, height: video.videoHeight }, this.settings!.preset, frameInfo, why);
     }
+    if (verdict === 'clean') t.revealed = true;
     t.verdict = verdict;
     this.stamper.set(video, verdict);
     // YouTube is never paused: its players don't recover well from being paused under
@@ -514,7 +519,10 @@ export class VideoWatcher {
     t.posterVerdict = undefined;
     t.fileTried = false;
     t.dead = t.drm;
-    if (!restore) t.verdict = undefined;
+    if (!restore) {
+      t.verdict = undefined;
+      t.revealed = false;
+    }
   }
 
   private tiny(video: HTMLVideoElement): boolean {

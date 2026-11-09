@@ -115,6 +115,13 @@ replaces the historical `zipserve.py` / corpus-page evaluation for explicit data
 
 ## Choices, measured
 
+- **Unpublished video-frame v3 candidate:** `video-frame-audit.md` records the
+  channel-disjoint ordinary-frame corpus, rebuilt Commons label filter, paired
+  category/channel evaluation, and release gate. The candidate reduces ordinary
+  frame FPs but loses one held-out NSFW item versus v2: **do not publish it**.
+  `SAFETY_MODEL_PATH` selects a local ONNX only for a dev build; the shipped pin
+  remains v2.
+
 - **Backbone.** RN50 beat MobileCLIP-S2 on hard negatives the head never saw: 3.4%
   blurred vs 5.2%. It matched it on the held-out set (98.1% / 2.2% vs 98.4% / 2.3%),
   and it's faster. MobileCLIP is also off the table for licence reasons (see below).

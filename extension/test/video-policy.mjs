@@ -22,6 +22,12 @@ await esbuild.build({
   outfile: entry, bundle: true, format: 'esm', define: { __DEV__: 'false' }, logLevel: 'silent',
 });
 const { PRESETS, isObviouslyExplicit, VideoWatcher } = await import(pathToFileURL(entry).href);
+const startupEntry = join(temporary, 'startup.mjs');
+await esbuild.build({
+  entryPoints: [join(import.meta.dirname, '../src/content/video.ts')],
+  outfile: startupEntry, bundle: true, format: 'esm', define: { __DEV__: 'true' }, logLevel: 'silent',
+});
+const { VideoWatcher: StartupVideoWatcher } = await import(pathToFileURL(startupEntry).href);
 const scores = (safety, porn = 0, hentai = 0, sexy = 0) => ({
   safety, whole: { porn, hentai, sexy, neutral: 1 - porn - hentai - sexy, drawing: 0 }, width: 448, height: 252,
 });
@@ -50,14 +56,15 @@ test('immediate safety trigger requires high confidence and NSFWJS agreement', (
 globalThis.IntersectionObserver = class { observe() {} disconnect() {} };
 globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {} }), toDataURL: () => 'synthetic-frame' }) };
 globalThis.location = { hostname: 'ordinary.example' };
-function sampler({ shown = false, paused = false, preset = 'balanced' } = {}) {
+function sampler({ shown = false, paused = false, preset = 'balanced', experiment = false } = {}) {
   let result = scores(0.01);
   const stamps = [];
   const rows = [];
-  const watcher = new VideoWatcher({ classifyFrame: async () => result }, { set: (_, s) => stamps.push(s) }, { record: (...r) => rows.push(r) });
+  const Watcher = experiment ? StartupVideoWatcher : VideoWatcher;
+  const watcher = new Watcher({ classifyFrame: async () => result }, { set: (_, s) => stamps.push(s) }, { record: (...r) => rows.push(r) });
   watcher.settings = { enabled: true, preset };
-  const video = { paused, currentTime: 1, duration: 100, videoWidth: 448, videoHeight: 252, hasAttribute: () => false, pause() { this.paused = true; } };
-  const track = { recent: [], cleanStreak: 0, every: 1000, generation: 0, failures: 0, ...(shown ? { verdict: 'clean' } : {}) };
+  const video = { dataset: {}, paused, currentTime: 1, duration: 100, videoWidth: 448, videoHeight: 252, hasAttribute: () => false, pause() { this.paused = true; } };
+  const track = { src: 'numeric-fixture', recent: [], cleanStreak: 0, every: 1000, generation: 0, failures: 0, ...(shown ? { verdict: 'clean' } : {}) };
   watcher.tracks.set(video, track);
   return { track, video, rows, stamps, async sample(r) { result = r; video.currentTime++; await watcher.sample(video); } };
 }
@@ -107,16 +114,79 @@ test('strong safety-only first frame remains hidden and repeated high scores pau
   assert.equal(s.video.paused, true);
 });
 
-test('borderline exception ends at 0.7 or NSFWJS agreement above 0.3', async () => {
-  const borderline = sampler();
+test('shown borderline exception ends at 0.7 or NSFWJS agreement above 0.3', async () => {
+  const borderline = sampler({ shown: true });
   await borderline.sample(scores(0.7, 0.3));
   assert.equal(borderline.track.verdict, 'clean');
-  const stronger = sampler();
+  const stronger = sampler({ shown: true });
   await stronger.sample(scores(0.70001));
-  assert.equal(stronger.track.verdict, 'blocked');
-  const agreed = sampler();
+  assert.deepEqual(stronger.track.recent, ['flagged']);
+  const agreed = sampler({ shown: true });
   await agreed.sample(scores(0.6, 0.30001));
-  assert.equal(agreed.track.verdict, 'blocked');
+  assert.deepEqual(agreed.track.recent, ['flagged']);
+});
+
+test('dev startup requires corroboration through 0.9, with strict threshold boundaries', async () => {
+  for (const paused of [false, true]) {
+    for (const safety of [0.5, 0.7, 0.8, 0.9]) {
+      const quiet = sampler({ paused, experiment: true });
+      await quiet.sample(scores(safety, 0.15));
+      assert.equal(quiet.track.verdict, 'clean');
+      assert.equal(quiet.track.revealed, true);
+    }
+    const supported = sampler({ paused, experiment: true });
+    await supported.sample(scores(0.8, 0.15001));
+    assert.equal(supported.track.verdict, 'blocked');
+    const strong = sampler({ paused, experiment: true });
+    await strong.sample(scores(0.90001));
+    assert.equal(strong.track.verdict, 'blocked');
+    const low = sampler({ paused, experiment: true });
+    await low.sample(scores(0.5, 0.2));
+    assert.equal(low.track.verdict, 'clean');
+  }
+});
+
+test('startup never suppresses independent hentai or sexy flags in any preset', async () => {
+  for (const preset of Object.keys(PRESETS)) {
+    for (const result of [scores(0.01, 0, 0.99), scores(0.01, 0, 0, 0.99)]) {
+      const sampled = sampler({ preset, experiment: true });
+      await sampled.sample(result);
+      assert.equal(sampled.track.verdict, 'blocked');
+    }
+  }
+});
+
+test('startup does not weaken a confirmed block after a video has been shown', async () => {
+  const sampled = sampler({ experiment: true });
+  sampled.video.pause = () => {};
+  await sampled.sample(scores(0.01));
+  await sampled.sample(scores(0.95));
+  await sampled.sample(scores(0.95));
+  assert.equal(sampled.track.verdict, 'blocked');
+  await sampled.sample(scores(0.8));
+  assert.equal(sampled.track.verdict, 'blocked');
+  await sampled.sample(scores(0.01));
+  await sampled.sample(scores(0.01));
+  assert.equal(sampled.track.verdict, 'blocked');
+  await sampled.sample(scores(0.01));
+  assert.equal(sampled.track.verdict, 'clean');
+});
+
+test('new sources reset startup eligibility, restoring the same source preserves it', async () => {
+  const sampled = sampler({ experiment: true });
+  await sampled.sample(scores(0.01));
+  const watcher = new VideoWatcher({ classifyFrame: async () => scores(0.01) }, { set() {} }, { record() {} });
+  watcher.reset(sampled.track, true);
+  assert.equal(sampled.track.revealed, true);
+  watcher.reset(sampled.track);
+  assert.equal(sampled.track.revealed, false);
+  assert.equal(sampled.track.verdict, undefined);
+});
+
+test('production retains the original startup threshold until the experiment is justified', async () => {
+  const sampled = sampler();
+  await sampled.sample(scores(0.8));
+  assert.equal(sampled.track.verdict, 'blocked');
 });
 
 test('paused shown video also tolerates one safety-only spike', async () => {

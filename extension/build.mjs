@@ -15,6 +15,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 const out = join(root, 'dist');
 const watch = process.argv.includes('--watch');
 const dev = watch || process.argv.includes('--dev');
+const safetyOverride = process.env.SAFETY_MODEL_PATH;
+if (safetyOverride && !dev) throw new Error('SAFETY_MODEL_PATH is only allowed in dev builds');
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -68,7 +70,8 @@ cpSync(join(root, 'src/shared/blur.css'), join(out, 'content/blur.css'));
   const pin = JSON.parse(readFileSync(join(root, 'models/safety.json'), 'utf8'));
   const cached = join(root, '.cache', `safety-${pin.sha256.slice(0, 16)}.onnx`);
   const sha = (buf) => createHash('sha256').update(buf).digest('hex');
-  let model = existsSync(cached) ? readFileSync(cached) : null;
+  let model = safetyOverride ? readFileSync(safetyOverride) : existsSync(cached) ? readFileSync(cached) : null;
+  if (safetyOverride) console.log(`dev safety model override: ${safetyOverride} (sha256 ${sha(model)})`);
   if (!model) {
     try {
       console.log(`downloading safety model (${(pin.size / 1e6).toFixed(0)} MB)…`);

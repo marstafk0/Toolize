@@ -5,6 +5,8 @@
 // node test/video-trace.mjs --summarize=test/.artifacts/video-trace/before.json
 // --direct skips YouTube; --seconds=60 and --limit=12 are the defaults.
 // --dist=<built extension> and --direct-offset=1 allow extra baseline clips.
+// --watcher-ref=<git ref> bundles that ref's video watcher/policy into the isolated copy.
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,6 +14,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { chromium } from 'playwright-core';
+import * as esbuild from 'esbuild';
 import { findChromium, isolatedDist } from './chromium.mjs';
 
 const option = (name, fallback) => process.argv.find((s) => s.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
@@ -139,9 +142,24 @@ const server = createServer((req, res) => {
 await new Promise((yes, no) => { server.once('error', no); server.listen(Number(process.env.TZ_TRACE_PORT ?? 18479), '127.0.0.1', yes); });
 const base = `http://127.0.0.1:${server.address().port}`;
 const dist = isolatedDist(resolve(option('dist', join(root, 'dist'))));
+const watcherRef = option('watcher-ref');
+if (watcherRef) {
+  await esbuild.build({
+    entryPoints: [join(root, 'src/content/index.ts')], outfile: join(dist, 'content/content.js'),
+    bundle: true, format: 'iife', target: 'chrome116', define: { __DEV__: 'true' },
+    loader: { '.css': 'text' }, logLevel: 'silent',
+    plugins: [{ name: 'watcher-reference', setup(build) {
+      build.onLoad({ filter: /[\\/]src[\\/](?:content[\\/]video|shared[\\/]policy)\.ts$/ }, ({ path }) => {
+        const relative = path.endsWith(join('content', 'video.ts')) ? 'content/video.ts' : 'shared/policy.ts';
+        const contents = execFileSync('git', ['show', `${watcherRef}:extension/src/${relative}`], { cwd: root, encoding: 'utf8' });
+        return { contents, loader: 'ts', resolveDir: dirname(path) };
+      });
+    } }],
+  });
+}
 const profile = mkdtempSync(join(tmpdir(), 'tz-video-trace-'));
 let context;
-const report = { label, seconds, started: new Date().toISOString(), engine: null, videos: [], attempts: [] };
+const report = { label, seconds, watcherRef, started: new Date().toISOString(), engine: null, videos: [], attempts: [] };
 const save = () => writeFileSync(join(artifacts, `${label}.json`), JSON.stringify(report, null, 2));
 const wait = (ms) => new Promise((yes) => setTimeout(yes, ms));
 try {

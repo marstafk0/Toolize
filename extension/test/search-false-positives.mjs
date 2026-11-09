@@ -19,12 +19,9 @@ const bundled = await esbuild.build({
 });
 const {
   DEFAULT_WORDS,
-  STRONG_QUERY_WORDS,
   buildMatcher,
   matchesWords,
   matchesStrongQuery,
-  normalize,
-  squash,
 } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`);
 
 const re = buildMatcher(DEFAULT_WORDS);
@@ -370,12 +367,9 @@ function diagnose(q) {
   const strongHit = matchesStrongQuery(q);
   if (!wordHit && !strongHit) return null;
   const hitWords = DEFAULT_WORDS.filter((entry) => matchesWords(buildMatcher([entry]), q));
-  const sq = squash(q);
-  const num = normalize(q).replace(/[^a-z0-9]/g, '');
-  const hitStrong = STRONG_QUERY_WORDS.filter((entry) =>
-    /\d/.test(entry) ? num.includes(entry) : sq.includes(squash(entry)),
-  );
-  return { query: q, matchesWords: wordHit, matchesStrongQuery: strongHit, hitWords, hitStrong };
+  // Report the actual matcher result; emulating the former global squash here
+  // would misleadingly diagnose cross-word substrings that no longer match.
+  return { query: q, matchesWords: wordHit, matchesStrongQuery: strongHit, hitWords };
 }
 
 const falsePositives = [];
@@ -388,11 +382,11 @@ console.log(`Checked ${EXPECTED_CLEAN_QUERIES.length} expected-clean everyday qu
 console.log(`Clean: ${EXPECTED_CLEAN_QUERIES.length - falsePositives.length} | False positives: ${falsePositives.length}\n`);
 
 if (falsePositives.length > 0) {
-  console.log('| # | Query | matchesWords | matchesStrongQuery | Triggered DEFAULT_WORDS | Triggered STRONG_QUERY_WORDS |');
-  console.log('|---|---|---|---|---|---|');
+  console.log('| # | Query | matchesWords | matchesStrongQuery | Triggered DEFAULT_WORDS |');
+  console.log('|---|---|---|---|---|');
   falsePositives.forEach((fp, idx) => {
     console.log(
-      `| ${idx + 1} | \`${fp.query}\` | ${fp.matchesWords} | ${fp.matchesStrongQuery} | ${fp.hitWords.map((w) => `\`${w}\``).join(', ') || '—'} | ${fp.hitStrong.map((w) => `\`${w}\``).join(', ') || '—'} |`,
+      `| ${idx + 1} | \`${fp.query}\` | ${fp.matchesWords} | ${fp.matchesStrongQuery} | ${fp.hitWords.map((w) => `\`${w}\``).join(', ') || '—'} |`,
     );
   });
   process.exitCode = 1;

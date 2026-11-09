@@ -15,10 +15,11 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
     'doujinshi', 'ahegao', 'futa', 'shota', 'r-18', 'rule 34', 'foot fetish', 'strap-on', 'sugar baby',
     'p0rn', 'pr0n', 'h3ntai', 's3x', 'ｈｅｎｔａｉ', 'hеntаi'];
   check('search: expanded vocabulary, stems, Unicode and common leetspeak match', explicit.every((q) => matchesWords(re, q)));
-  const strong = ['freep0rnvideos', 'bigtitsgirls', 'h 3 n t a i', 'only.f4ns', 'freeR34art', 'e 6 2 1 gallery'];
+  // Embedded R34 also names ordinary models/identifiers; numeric names need boundaries.
+  const strong = ['freep0rnvideos', 'bigtitsgirls', 'h 3 n t a i', 'only.f4ns', 'r-34 art', 'e 6 2 1 gallery'];
   check('search: concatenated, spaced-out and numeric strong terms match', strong.every(matchesStrongQuery));
   const ordinary = ['sussex university', 'essex analysis', 'middlesex', 'classic analysis curriculum',
-    'reading their height', 'hot tentacle facial hardcore yuri', 'Bikini Bottom', 'how to pronounce gnocchi', 'pronoun list'];
+    'reading their height', 'hot tentacle facial hardcore yuri', 'Bikini Bottom', 'how to pronounce gnocchi', 'pronoun list', 'freeR34art'];
   check('search: ordinary words keep their boundaries after folding', ordinary.every((q) => !matchesWords(re, q) && !matchesStrongQuery(q)));
   check('search: strong substrings do not apply to page titles or whole addresses',
     !matchesWords(re, 'bigtitsgirls') && !matchesWords(re, 'https://freehentaigallery.test/about'));
@@ -48,6 +49,8 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
   const rules = JSON.parse(readFileSync(join(dist, 'rules/safesearch.json'), 'utf8'));
   const engineSchemes = [
     ['https://www.google.co.uk/images?q=cats', 'safe', 'active'],
+    ['https://www.google.com/webhp?q=cats', 'safe', 'active'],
+    ['https://www.google.com/?q=cats', 'safe', 'active'],
     ['https://bing.com/videos/search?q=cats', 'adlt', 'strict'],
     ['https://html.duckduckgo.com/html/?q=cats', 'kp', '1'],
     ['https://uk.search.yahoo.com/search?p=cats', 'vm', 'r'],
@@ -85,10 +88,11 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
   const page = await context.newPage();
   const engines = [ ['www.google.com', 'safe', 'active'], ['www.bing.com', 'adlt', 'strict'], ['duckduckgo.com', 'kp', '1'] ];
   const go = async (url) => {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch((e) => {
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch((e) => {
       if (!/ERR_ABORTED|interrupted by another navigation/.test(e.message)) throw e;
     });
     await page.waitForTimeout(650); // > two URL/title guard ticks, including SPA changes
+    return response;
   };
   for (const [host, key, value] of engines) {
     const origin = `http://${host}:${port}/search`;
@@ -105,6 +109,22 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
     await go(`${origin}?q=cats&${key}=${value}&${key}=off`);
     check(`search: ${host} cannot bypass SafeSearch with conflicting duplicate parameters`,
       JSON.stringify(new URL(page.url()).searchParams.getAll(key)) === JSON.stringify([value]), page.url());
+  }
+  const requestUrls = (response) => {
+    const urls = [];
+    for (let request = response?.request(); request; request = request.redirectedFrom()) urls.push(request.url());
+    return urls;
+  };
+  for (const path of ['/webhp', '/']) {
+    const origin = `http://www.google.com:${port}${path}`;
+    // The fixture server redirects / to /pages/index.html, dropping its query.
+    // Assert the DNR hop before that server redirect, as well as loop stability.
+    const forced = requestUrls(await go(`${origin}?q=cats`));
+    check(`search: Google ${path} forces SafeSearch without looping`,
+      forced.filter((url) => url === `${origin}?q=cats&safe=active`).length === 1, forced.join(' <- '));
+    const corrected = requestUrls(await go(`${origin}?q=cats&safe=active&safe=off`));
+    check(`search: Google ${path} corrects conflicting SafeSearch parameters`,
+      corrected.includes(`${origin}?q=cats&safe=active`), corrected.join(' <- '));
   }
   await go(`http://localhost:${port}/pages/frame.html`);
   await page.evaluate((src) => {
@@ -141,10 +161,18 @@ export async function runSearchLockdown({ context, sw, setSettings, waitFor, che
   }
   check('search: blocked page explains searches without retaining the query',
     (await page.locator('#why').innerText()).includes('This search') && !page.url().includes('s3x'));
-  for (const query of ['sussex university', 'essex analysis', 'middlesex', 'reading their height']) {
+  for (const query of ['sussex university', 'essex analysis', 'middlesex', 'reading their height',
+    'what it says', '7175', 'chapter 34', 'nude lipstick', 'Matisse blue nude']) {
     await go(`http://www.google.com:${port}/search?q=${encodeURIComponent(query)}`);
     check(`search: ordinary query allowed (${query})`, !page.url().includes('/blocked/'), page.url());
   }
+  for (const params of ['v=sex&token=porn', 'opaque=abc_sex_123']) {
+    await go(`http://localhost:${port}/pages/frame.html?${params}`);
+    check('search: opaque URL values do not trigger the page word guard', !page.url().includes('/blocked/'), page.url());
+  }
+  await page.evaluate(() => { document.title = 'biological sex and naked eye observations'; });
+  await page.waitForTimeout(650);
+  check('search: ordinary contexts also apply to page titles', !page.url().includes('/blocked/'), page.url());
   await go(`http://localhost:${port}/search?q=cats`);
   await page.evaluate(() => history.pushState({}, '', '?q=freep0rnvideos'));
   check('search: SPA query changes are blocked', !!(await waitFor(() => page.url().includes('reason=search'), { timeout: 3000 })));

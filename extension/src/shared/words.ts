@@ -1,5 +1,22 @@
 import { normalize, squash } from './feeds';
 
+// Exceptions belong to built-in patterns, so a user's literal extra still blocks.
+// Separators also cover decoded URL paths. Each exception applies to this occurrence.
+function contextWord(body: string, before = '', after = ''): string {
+  return `/${before ? `(?<!\\b(?:${before})[\\s_-]+)` : ''}(?:${body})${after ? `(?![\\s_-]+(?:${after})\\b)` : ''}/`;
+}
+
+const NUDE = contextWord('nudes?', 'matisse(?:[\\s_-]+blue)?|duchamp',
+  'lipstick|nail(?:[\\s_-]+polish)?|heels|shoes|palette|matisse|duchamp|descending[\\s_-]+a[\\s_-]+staircase');
+const NAKED = contextWord('naked', '', 'eye|mole|cake|smoothie|short|put|call|seed|juice|gun|and[\\s_-]+not[\\s_-]+ashamed');
+const TITS = contextWord('tits', 'blue|great|coal|crested|marsh|willow|long[\\s_-]+tailed');
+const PUSSY = contextWord('pussy', '', 'willows?|cats?|toes?');
+const XXX = contextWord('xxx', 'super[\\s_-]+bowl|wrestlemania', 'olympiad');
+const DILDO = contextWord('dildos?', '', 'island|newfoundland');
+const R34 = contextWord('r[-_]?34', 'gt[-_]?r|skyline|nissan', 'skyline|gt[-_]?r|v[\\s_-]+spec');
+const R18 = contextWord('r[-_]?18', 'audi|bmw|honda(?:[\\s_-]+civic)?|insulation', 'insulation|engine|motorcycle|e[\\s_-]+tron');
+const E621 = contextWord('e[-_]?621', 'monosodium[\\s_-]+glutamate|food[\\s_-]+additive|additive', 'additive|monosodium|glutamate');
+
 /**
  * Word filter: pages whose address or title contains a blocked word are blocked, and
  * YouTube videos whose title or channel does are hidden. It catches what images can't
@@ -10,65 +27,94 @@ import { normalize, squash } from './feeds';
  */
 export const DEFAULT_WORDS: readonly string[] = [
   // explicit
-  'porn', 'porno', 'pornography', 'xxx', 'nsfw', '18+', 'onlyfans', 'only fans', 'fansly', 'hentai',
-  'rule34', 'rule 34', 'nude', 'nudes', 'nudity', 'naked', 'topless', 'sex', 'sexual', 'erotic', 'erotica',
-  'lewd', 'uncensored', 'playboy', 'camgirl', 'cam girl', 'stripper', 'striptease', 'strip club', 'lap dance',
-  'pron', 'lewds', 'smut', 'softcore', 'porn star', 'pornstar', 'adult film', 'adult video', 'xxx video',
+  'porn', 'porno', 'pornography', XXX, 'nsfw', '/18\\+(?![\\s_-]*\\d)/', 'onlyfans', 'only fans', 'fansly', 'hentai',
+  'rule34', 'rule 34', NUDE, 'nudity', NAKED, 'topless',
+  contextWord('s[3e]x', 'biological|assigned|chromosomal|canon(?:[\\s_-]+powershot)?|powershot', 'chromosomes?|linked|determination|dimorphism|differences?|ratio|education'),
+  contextWord('sexual', '', 'reproduction|dimorphism|selection|development|health|orientation'), 'erotic', 'erotica',
+  'lewd', 'uncensored', contextWord('playboy', '', 'of[\\s_-]+the[\\s_-]+western[\\s_-]+world'),
+  'camgirl', 'cam girl', contextWord('strippers?', 'wire|paint|wax|floor|wallpaper|cable|varnish'), 'striptease', 'strip club', 'lap dance',
+  'pron', 'lewds', contextWord('smut', 'corn', 'fungus|fungi|huitlacoche'), 'softcore', 'porn star', 'pornstar', 'adult film', 'adult video', 'xxx video',
   'sex video', 'sex scene', 'nude scene', 'topless scene', 'hardcore porn',
   // sexual acts and anatomy (ordinary words such as "ass" and "facial" are omitted)
-  'blowjob', 'handjob', 'cumshot', 'creampie', 'gangbang', 'threesome', 'orgy', 'anal', 'deepthroat',
-  'bukkake', 'facesitting', 'pegging', 'cum', 'jizz', '/masturbat\\w*/', '/jerk(ing)?[\\s_-]+off/',
-  'orgasm', 'horny', 'slut', 'whore', 'pussy', 'cock', 'dick pic', 'tits', 'titties', 'boobies',
-  'big tits', '/nipples?/', '/areolas?/', 'milf',
+  'blowjob', 'handjob', 'cumshot', 'creampie', 'gangbang', contextWord('threesome', 'golf'),
+  contextWord('orgy', 'roman|historical'), contextWord('anal', '', 'fissures?|fistulas?|glands?|cancer|sphincter'), 'deepthroat',
+  'bukkake', 'facesitting', 'pegging', '/cum(?![\\s_-]+laude)/', 'jizz', '/masturbat\\w*/', '/jerk(ing)?[\\s_-]+off/',
+  'orgasm', contextWord('horny', '', 'goat|toad'), 'slut', contextWord('whore', '', 'of[\\s_-]+babylon'), PUSSY, 'cock', 'dick pic', TITS, 'titties', 'boobies',
+  'big tits',
+  contextWord('nipples?', 'baby[\\s_-]+bottle|grease|pipe|spoke|cracked|sore|breastfeeding(?:[\\s_-]+sore)?|inverted',
+    '(?:[\\w-]+[\\s_-]+){0,4}(?:breastfeeding|nursing|newborn|latch|fitting|wrench|baby[\\s_-]+bottle)'),
+  contextWord('areolas?', '', '(?:[\\w-]+[\\s_-]+){0,4}(?:pregnancy|pregnant|breastfeeding|glands)'), '/milfs?/',
   // industry and adult sites
   'pornhub', 'xvideos', 'xnxx', 'xhamster', 'redtube', 'youporn', 'spankbang', 'brazzers', 'bangbros',
   'chaturbate', 'stripchat', 'camsoda', 'livejasmin', 'onlyfans leak', 'fapello', 'thothub', 'gonewild',
-  'nhentai', 'e-hentai', 'hanime', 'fakku', 'gelbooru', 'danbooru', 'rule34xxx', 'e621', 'yiff',
+  'nhentai', 'e-hentai', 'hanime', 'fakku', 'gelbooru', 'danbooru', 'rule34xxx', E621, 'yiff',
   // anime / hentai (not "yuri" or "tentacle" alone)
-  'ecchi', 'doujin', 'doujinshi', 'ahegao', 'futanari', 'futa', 'oppai', 'paizuri', 'bakunyuu',
-  'netorare', 'ntr', 'lolicon', 'loli', 'shotacon', 'shota', 'yaoi', 'r18', 'r-18', 'r34',
+  'ecchi', 'doujin', 'doujinshi', 'ahegao', 'futanari', contextWord('futa', '', 'tax|credit|rate'), 'oppai', 'paizuri', 'bakunyuu',
+  'netorare', contextWord('ntr', 'jr'), 'lolicon', 'loli', 'shotacon', contextWord('shota', '', 'imanaga|rustaveli'), 'yaoi', R18, R34,
   // kink and voyeurism
-  'bdsm', 'bondage', 'shibari', 'femdom', 'dominatrix', 'fetish', 'foot fetish', 'upskirt', 'downblouse',
-  'nip slip', 'nipslip', 'wardrobe malfunction', 'voyeur', 'sextape', 'sex tape', 'leaked nudes',
-  'nudist', 'nudism', 'jav', 'gravure idol', 'sex toy', 'dildo', 'vibrator', 'fleshlight', 'butt plug',
+  'bdsm', contextWord('bondage', 'human|debt|exodus|luther|maugham', 'of[\\s_-]+the[\\s_-]+will|in[\\s_-]+egypt|exodus|luther|maugham'),
+  'shibari', 'femdom', 'dominatrix', 'fetish', 'foot fetish', 'upskirt', 'downblouse',
+  'nip slip', 'nipple slip', 'nipslip', 'wardrobe malfunction', 'voyeur', 'sextape', 'sex tape', 'leaked nudes',
+  'nudist', 'nudism', 'jav', 'gravure idol', 'sex toy', DILDO, contextWord('vibrators?', 'concrete|ultrasonic|industrial'), 'fleshlight', 'butt plug',
   'strapon', 'strap-on',
   // escort / prostitution
-  'escort', 'escorts', 'hooker', 'prostitute', 'brothel', 'sugar baby',
+  contextWord('escorts?', 'ford|police|naval(?:[\\s_-]+destroyer)?|military|funeral', 'radar|detector'),
+  // Hooker is usually a surname, occupation or brand; require a sexual phrase.
+  '/hookers?(?=[\\s_-]+(?:porn|sex|videos?|escort|service)\\b)/', '/(?:hot|hire)[\\s_-]+hookers?/',
+  'prostitute', 'brothel', contextWord('sugar[\\s_-]+baby', '', 'watermelon'),
   // common leetspeak: normalize() deliberately preserves digits and punctuation
-  '/p[o0]rn\\w*|pr[o0]n/', '/h[3e]nt[a4]i/', '/s[3e]x/',
+  '/p[o0]rn\\w*|pr[o0]n/', '/h[3e]nt[a4]i/',
   // revealing
-  'sexy', 'seductive', 'sensual', 'lingerie', 'boudoir', 'braless', 'no bra', 'see through', 'see-through',
-  'cleavage', 'boobs', 'thirst trap', 'twerk', 'twerking', 'body paint', 'bodypaint',
+  'sexy', 'seductive', 'sensual', 'lingerie', 'boudoir', 'braless', 'no bra',
+  'see through lingerie', 'see through dress', 'see through shirt',
+  contextWord('cleavage', 'mineral|cell|oxidative|proteolytic|basal|slaty|rock', 'planes?|fracture|embryology'),
+  'boobs', 'thirst trap', 'twerk', 'twerking', contextWord('body[\\s_-]*paint', 'auto|car|automotive|vehicle'),
   // swimwear, without SpongeBob's Bikini Bottom
-  '/bikinis?(?!\\s+bottom)/', 'micro bikini', 'try on haul', 'try-on haul', 'swimsuit try on',
-  // scenes
-  'hot girls', 'kiss scene', 'kissing scene', 'bed scene', 'steamy',
+  '/bikinis?(?![\\s_-]+(?:bottom|atoll))/', 'micro bikini', 'try on haul', 'try-on haul', 'swimsuit try on',
+  // Generic steam, seeing-through, and bed/kiss film scenes have everyday uses.
+  'hot girls',
 ];
 
 /** Substrings ONLY in extracted queries, never in a hostname, whole URL or title.
  * Leave out sex, anal, cum, ass and tit: they occur in everyday words. */
 export const STRONG_QUERY_WORDS: readonly string[] = [
   // not "pron": it sits inside "pronounce" and "pronoun" (it stays a whole word above)
-  'porn', 'hentai', 'xxx', 'nsfw', 'rule34', 'r34', 'nude', 'nudes', 'naked',
-  'boobs', 'tits', 'titties', 'boobies', 'pussy', 'blowjob', 'handjob', 'creampie', 'cumshot', 'milf',
-  'onlyfans', 'ahegao', 'futanari', 'doujin', 'ecchi', 'gangbang', 'bdsm', 'lewd', 'hooker', 'dildo',
-  'nhentai', 'xvideos', 'pornhub', 'xnxx', 'xhamster', 'brazzers', 'chaturbate', 'yiff', 'e621',
+  'porn', 'hentai', 'nsfw',
+  'boobs', 'titties', 'boobies', 'blowjob', 'handjob', 'creampie', 'cumshot',
+  'onlyfans', 'ahegao', 'futanari', 'doujin', 'gangbang', 'bdsm', 'lewd',
+  'nhentai', 'xvideos', 'pornhub', 'xnxx', 'xhamster', 'brazzers', 'chaturbate', 'yiff',
   'lolicon', 'shotacon', 'paizuri', 'bakunyuu', 'bukkake', 'deepthroat', 'spankbang', 'redtube',
   'youporn', 'bangbros', 'fapello', 'thothub', 'gelbooru', 'danbooru', 'femdom', 'fleshlight',
 ];
 
-// Numeric names must be checked before lossy leet folding: r34 -> rea would block
-// "reading", and e621 -> ei would block "their". Still ignore spaces/punctuation.
-const STRONG_NUMERIC = STRONG_QUERY_WORDS.filter((word) => /\d/.test(word));
-const STRONG_SQUASHED = [...new Set(STRONG_QUERY_WORDS.filter((word) => !/\d/.test(word)).map(squash))];
+// Dictionary collisions demote nude(s), naked, tits, pussy, milf and ecchi to whole
+// words; xxx/dildo/hooker need context too. Keep explicitly sexual compounds.
+const SEXUAL_COMPOUND = /(?:(?:big|huge|hot|sexy|bare|naked)tits|(?:free|hot|sexy|leaked)(?:nudes?|naked|milf|pussy|ecchi)|(?:nudes?|naked|milf|pussy|ecchi|xxx)(?:leak|girl|pic|photo|video|porn|sex|hunter|seeker))\w*$/;
+const STRONG_SQUASHED = STRONG_QUERY_WORDS.map(squash);
 
-export function matchesStrongQuery(text: string): boolean {
-  const query = squash(text);
-  const numeric = normalize(text).replace(/[^a-z0-9]/g, '');
-  return STRONG_SQUASHED.some((word) => query.includes(word)) || STRONG_NUMERIC.some((word) => numeric.includes(word));
+function queryText(text: string): string {
+  return normalize(text)
+    // Only >=3 isolated characters are joined, never ordinary adjacent words.
+    .replace(/(?<![\p{L}\p{N}])(?:[\p{L}\p{N}][^\p{L}\p{N}]+){2,}[\p{L}\p{N}](?![\p{L}\p{N}])/gu,
+      (run) => run.replace(/[^\p{L}\p{N}]/gu, ''))
+    .replace(/[^\p{L}\p{N}\s_+-]/gu, ' ')
+    // Query prose treats underscores as separators; URL ID values keep them below.
+    .replace(/_/g, '-')
+    .replace(/[\p{L}\p{N}]+/gu, (token) => {
+      // Pure numbers stay numbers; numeric names are matched before lossy folding.
+      if (!/\p{L}/u.test(token) || /^(?:r18|r34|e621|rule34)$/.test(token)) return token;
+      return token.replace(/[013457]/g, squash);
+    });
 }
 
-const LETTER = '[\\p{L}\\p{N}]';
+export function matchesStrongQuery(text: string): boolean {
+  const query = queryText(text);
+  if (matchesWords(QUERY_WORDS, query)) return true;
+  return (query.match(/[\p{L}\p{N}]+/gu) ?? []).some((token) =>
+    /\p{L}/u.test(token) && (STRONG_SQUASHED.some((word) => token.includes(word)) || SEXUAL_COMPOUND.test(token)));
+}
+
+const LETTER = '[\\p{L}\\p{N}_]';
 
 function toSource(entry: string): string | null {
   const e = entry.trim();
@@ -77,7 +123,7 @@ function toSource(entry: string): string | null {
     e.length > 2 && e.startsWith('/') && e.endsWith('/')
       ? e.slice(1, -1)
       : normalize(e).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[\s-]+/g, '[\\s_-]+');
-  // Whole words: not glued to a letter or digit on either side.
+  // Whole words: underscores stay part of identifiers in query values/titles.
   return `(?<!${LETTER})(?:${body})(?!${LETTER})`;
 }
 
@@ -100,13 +146,29 @@ export function matchesWords(re: RegExp | null, text: string | null | undefined)
   return !!re && !!text && re.test(normalize(text));
 }
 
-/** An address as words: decoded, with its punctuation read as spaces ("/nude-art?q=x" → "nude art q x"). */
-export function urlAsText(href: string): string {
-  let decoded = href;
+const QUERY_WORDS = buildMatcher(DEFAULT_WORDS);
+
+const OPAQUE_PARAMS = /^(?:v|vi|id|.*_id|si|t|list|index|feature|token|.*_token|sig|signature|key|api_key|hash|nonce|session|sessionid|auth|code|fbclid|gclid|utm_.*)$/i;
+
+function addressWords(text: string): string {
   try {
-    decoded = decodeURIComponent(href.replace(/\+/g, ' '));
+    text = decodeURIComponent(text);
   } catch {
-    /* keep it raw */
+    // A malformed escape in one component must not reintroduce opaque parameters.
   }
-  return decoded.replace(/[/?#&=.:_%]+/g, ' ');
+  return text.replace(/[/?#&=.:_%+-]+/g, ' ');
+}
+
+/** Decode address words while skipping opaque IDs and preserving value underscores. */
+export function urlAsText(href: string): string {
+  try {
+    const url = new URL(href);
+    const path = addressWords(`${url.hostname}${url.pathname}`);
+    // Values keep underscores: abc_sex_123 is an identifier, not prose.
+    const values = [...url.searchParams].filter(([key]) => !OPAQUE_PARAMS.test(key)).map(([, value]) => value);
+    const fragment = addressWords(url.hash.slice(1));
+    return [path, ...values, fragment].join(' ');
+  } catch {
+    return href;
+  }
 }

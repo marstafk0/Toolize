@@ -83,13 +83,16 @@ async function readLearned(): Promise<LearnedSite[]> {
 
 /** Rebuilds every dynamic rule from storage. Idempotent; call after any change. */
 export function syncDynamicRules(): Promise<void> {
-  return reconcileDnr(async () => {
-    let enabled: boolean;
-    do {
-      enabled = await blockingEnabled();
-      await rebuildDynamicRules(enabled);
-    } while (enabled !== await blockingEnabled());
-  });
+  return reconcileDnr(reconcileDynamicRules);
+}
+
+// Already inside rulesChain: never enqueue syncDynamicRules from a queued mutation.
+async function reconcileDynamicRules(): Promise<void> {
+  let enabled: boolean;
+  do {
+    enabled = await blockingEnabled();
+    await rebuildDynamicRules(enabled);
+  } while (enabled !== await blockingEnabled());
 }
 
 async function rebuildDynamicRules(enabled: boolean): Promise<void> {
@@ -197,24 +200,34 @@ export async function learn(url: string, reason: LearnReason): Promise<string | 
   } catch {
     return null;
   }
-  if (!canLearn(host) || !(await blockingEnabled())) return null;
+  if (!canLearn(host)) return null;
   const site = siteOf(host);
-  const learned = await readLearned();
-  if (!learned.some((l) => l.site === site)) {
-    learned.push({ site, reason, at: Date.now() });
-    await chrome.storage.local.set({ [LEARNED_KEY]: learned });
-    await syncDynamicRules();
-  }
-  return chrome.runtime.getURL(blockedPageUrl(reason, site));
+  let blocked: string | null = null;
+  await reconcileDnr(async () => {
+    if (!(await blockingEnabled())) return;
+    const learned = await readLearned();
+    if (!learned.some((l) => l.site === site)) {
+      learned.push({ site, reason, at: Date.now() });
+      await chrome.storage.local.set({ [LEARNED_KEY]: learned });
+      await reconcileDynamicRules();
+    }
+    blocked = chrome.runtime.getURL(blockedPageUrl(reason, site));
+  });
+  return blocked;
 }
 
 /** Unblocking is a weakening change: the desktop app must see the key first. */
 export async function unlearn(site: string): Promise<{ ok: boolean; error?: string }> {
-  const learned = await readLearned();
-  if (!learned.some((l) => l.site === site)) return { ok: true };
+  let exists = false;
+  await reconcileDnr(async () => { exists = (await readLearned()).some((l) => l.site === site); });
+  if (!exists) return { ok: true };
   const auth = await authorizeWeakening('unblocking a site the extension learned');
   if (!auth.ok) return auth;
-  await chrome.storage.local.set({ [LEARNED_KEY]: learned.filter((l) => l.site !== site) });
-  await syncDynamicRules();
+  await reconcileDnr(async () => {
+    // Authorization can take time; re-read under the same queue as learn().
+    const current = await readLearned();
+    await chrome.storage.local.set({ [LEARNED_KEY]: current.filter((l) => l.site !== site) });
+    await reconcileDynamicRules();
+  });
   return { ok: true };
 }

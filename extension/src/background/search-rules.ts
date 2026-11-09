@@ -1,7 +1,7 @@
 /** Build-time DNR data; no queries, URLs or headers are stored at runtime.
  * Parameter evidence and intentionally omitted engines: ../../docs/search.md. */
 export const SAFE_SEARCH_ENGINES = [
-  { name: 'Google', host: '(www\\.)?google\\.[a-z.]+', path: '/(search|images|videos|imgres)(/[^?#]*)?', key: 'safe', value: 'active' },
+  { name: 'Google', host: '(www\\.)?google\\.[a-z.]+', path: '/((search|images|videos|imgres|webhp)(/[^?#]*)?)?', key: 'safe', value: 'active' },
   { name: 'Bing', host: '(www\\.)?bing\\.com', path: '/(search|images(/search)?|videos(/search)?)(/[^?#]*)?', key: 'adlt', value: 'strict' },
   { name: 'DuckDuckGo', host: '([a-z]+\\.)?duckduckgo\\.com', path: '/[^?#]*', key: 'kp', value: '1' },
   { name: 'Yahoo', host: '([a-z]+\\.)?search\\.yahoo\\.com', path: '/search/?', key: 'vm', value: 'r' },

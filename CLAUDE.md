@@ -141,11 +141,19 @@ about what each tier actually guarantees.
   list covers acts, anatomy, adult sites, anime/hentai and kink, plus common leetspeak.
   `shared/search.ts` extracts queries on search engines/social sites and generic URL
   search parameters, including path searches and SPA navigation, in every frame.
-  Queries also match `STRONG_QUERY_WORDS` after Unicode/leet/spacing folding, catching
-  concatenated searches such as `freep0rnvideos` and `bigtitsgirls`; ambiguous short
-  words stay whole-word so Sussex, Middlesex and analysis work. Substring matching
-  never applies to whole URLs/titles. Search matches use `reason=search`, retaining
-  no query. On YouTube, matching tiles are hidden and matching watch pages blocked.
+  Queries also match `STRONG_QUERY_WORDS` within whitespace/punctuation-delimited
+  tokens after Unicode/leet folding; pure numbers never leet-fold. Only runs of at
+  least three isolated characters reassemble (`p.o.r.n`, `h 3 n t a i`), never ordinary
+  adjacent words. Explicit compounds such as `freep0rnvideos`, `bigtitsgirls` and
+  `nudesleaked` still match. Numeric names require whole tokens/internal hyphens or
+  underscores (`r34`, `r-34`, `e621`), with `rule 34` also accepted. Ambiguous words
+  use whole-word context rules for medical/scientific uses, names, birds, tools,
+  cars, cosmetics and ordinary phrases; generic steam, seeing-through and bed/kiss
+  scenes are omitted. User extras still apply literally in these contexts. URL
+  checks skip opaque ID/tracking parameters and preserve underscores in values.
+  Substring matching never applies to whole URLs/titles. Search matches use
+  `reason=search`, retaining no query. On YouTube, matching tiles are hidden and
+  matching watch pages blocked.
   Independent network **SafeSearch** (`safeSearch`, default true) forces Google,
   Bing, DuckDuckGo, Yahoo, Brave, Qwant and Startpage filters before results load.
   Google SafeSearch is Google's own filter, whose decisions are outside our control.

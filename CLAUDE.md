@@ -51,7 +51,13 @@ about what each tier actually guarantees.
   98.72% → 98.86% (+0.14 pp); independent five-fold heads: 94.24% → 95.02% (+0.78 pp).
   Commons safe FP: 1.59% → 1.86% (+0.27 pp, 5/1,885 extra). Dataset drawn-style FP
   also rises (full replay 1.43% → 4.33%); see `tools/safety-model/anime-gap.md` for
-  counts, all candidates and limitations. Without WebGPU, or if it isn't up within
+  counts, all candidates and limitations. **v2 (0.9.3)** adds ordinary YouTube thumbnails
+  as hard negatives: thumbnail FP 19/329 → 5–6/329 on channels it never saw
+  (leave-one-channel-out), NSFW recall under the full rule unchanged (5,235/5,322),
+  swimwear and calibration unchanged (`tools/safety-model/youtube-thumbnail-audit.md`).
+  Caveats: 4,056 of the 9,600 held-out items are near-duplicates of training items, so
+  the 98.1% below is inflated (97.3% deduplicated, both versions); the Commons table is
+  stale (the NudeNet drop list was lost — rebuild it on the next retrain). Without WebGPU, or if it isn't up within
   20 s, NSFWJS decides alone as before. The original rule held out, through the
   extension: 98.1% NSFW caught at 2.6% FP, against
   86.5% / 7.9% for NSFWJS. Unseen hard-negative categories: 4.4% blurred vs 10.1%. The

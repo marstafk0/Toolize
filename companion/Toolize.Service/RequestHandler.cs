@@ -191,13 +191,15 @@ public sealed class RequestHandler(
         return Response.Success(request.Id, new { code = unlock.IssueRecoveryCode() });
     }
 
+    private bool Locked => locks.State is { Enrolled: true, KeyPresent: false };
+
     private Response ExtensionHello(Request request)
     {
         var args = request.ArgsAs<ExtensionHelloArgs>();
         extension.Hello(args?.Version, args?.Browser, args?.ExtensionId);
         log.LogInformation("extension {Version} connected from {Browser}", args?.Version, args?.Browser ?? "an unknown browser");
         var settings = store.Settings;
-        return Response.Success(request.Id, new { settings, service = AppInfo.Version, enforced = settings.Enforce, revision = extension.Revision });
+        return Response.Success(request.Id, new { settings, service = AppInfo.Version, enforced = settings.Enforce, locked = Locked, revision = extension.Revision });
     }
 
     private Response ExtensionHeartbeat(Request request)
@@ -205,7 +207,7 @@ public sealed class RequestHandler(
         var args = request.ArgsAs<ExtensionHeartbeatArgs>();
         if (args is not null) extension.Heartbeat(args);
         var settings = store.Settings;
-        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, revision = extension.Revision });
+        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, locked = Locked, revision = extension.Revision });
     }
 
     private async Task<Response> WatchSettingsAsync(Request request, CancellationToken ct)
@@ -215,6 +217,6 @@ public sealed class RequestHandler(
         if (!accepted)
             return Response.Failure(request.Id, "too many settings watchers", "busy");
         var settings = store.Settings;
-        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, revision });
+        return Response.Success(request.Id, new { settings, enforced = settings.Enforce, locked = Locked, revision });
     }
 }

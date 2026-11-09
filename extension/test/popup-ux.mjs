@@ -165,16 +165,27 @@ try {
   await popup.waitForFunction(() => document.getElementById('feeds').open && document.getElementById('verdicts').open);
   check('popup remembers both Feeds and Verdicts open states across reload', true);
 
-  // Lock hints when companion is connected + dismissible lock-note error
+  // Lock hints when companion is connected: unlocked hides 🔒, locked shows 🔒 + dismissible lock-note error
   await popup.evaluate(() => {
+    window.__companionLocked = false;
     const origSend = chrome.runtime.sendMessage.bind(chrome.runtime);
     chrome.runtime.sendMessage = async (msg) => {
-      if (msg?.kind === 'companion') return { installed: true };
+      if (msg?.kind === 'companion') return { installed: true, locked: window.__companionLocked };
       if (msg?.kind === 'setSettings') {
         return { ok: false, error: 'the unlock key must be plugged in to allow turning off safe search', code: 'locked' };
       }
       return origSend(msg);
     };
+  });
+  await popup.waitForFunction(() => document.getElementById('companion')?.textContent?.includes('key present, changes allowed'));
+  check(
+    'when companion is connected and unlocked, no 🔒 hints are shown and status says key present',
+    (await popup.locator('.needs-key').count()) === 0 &&
+      (await popup.locator('#companion').innerText()) === 'Toolize app: connected — key present, changes allowed',
+  );
+
+  await popup.evaluate(() => {
+    window.__companionLocked = true;
   });
   await popup.waitForFunction(() => document.querySelectorAll('.needs-key').length > 0);
   const badgeInfo = await popup.evaluate(() => ({
@@ -184,7 +195,7 @@ try {
     safeHasLock: !!document.querySelector('#mode button[data-value="safe"] .needs-key'),
   }));
   check(
-    'when companion is connected, weakening options show 🔒 hint and strengthening options do not',
+    'when companion is connected and locked, weakening options show 🔒 hint and strengthening options do not',
     badgeInfo.relaxedHasLock && !badgeInfo.strictHasLock && badgeInfo.fastHasLock && !badgeInfo.safeHasLock,
     JSON.stringify(badgeInfo),
   );

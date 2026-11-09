@@ -32,6 +32,7 @@ const YT_STRENGTH: Record<YouTubeRestrict, number> = { off: 0, moderate: 1, stri
 
 let currentSettings: Settings = DEFAULT_SETTINGS;
 let companionConnected = false;
+let companionLocked = false;
 let lastEngineInfo: EngineInfo | null = null;
 const baseLabels = new WeakMap<Element, string>();
 
@@ -53,7 +54,7 @@ function setBadge(el: Element | null, needsKey: boolean): void {
 }
 
 function renderLockHints(s: Settings): void {
-  const gated = companionConnected;
+  const gated = companionConnected && companionLocked;
   setBadge(document.querySelector('header h1'), gated && s.enabled);
   setBadge($('blockAdultSites').closest('.row')?.querySelector('h2') ?? null, gated && s.blockAdultSites);
   setBadge($('wordFilter').closest('.row')?.querySelector('h2') ?? null, gated && s.wordFilter);
@@ -331,12 +332,16 @@ async function refreshStats(): Promise<void> {
     tabVerdicts = [];
   }
   const companion: CompanionState = await chrome.runtime.sendMessage({ target: 'background', kind: 'companion' });
-  if (companion.installed !== companionConnected) {
+  const locked = companion.installed && companion.locked;
+  if (companion.installed !== companionConnected || locked !== companionLocked) {
     companionConnected = companion.installed;
+    companionLocked = locked;
     renderLockHints(currentSettings);
   }
   $('companion').textContent = companion.installed
-    ? 'Toolize app: connected — weakening changes need your key'
+    ? locked
+      ? 'Toolize app: connected — weakening changes need your key'
+      : 'Toolize app: connected — key present, changes allowed'
     : 'Toolize app: not installed';
 
   const info: EngineInfo = await chrome.runtime.sendMessage({ target: 'background', kind: 'engineInfo' } satisfies GetEngineInfoRequest);

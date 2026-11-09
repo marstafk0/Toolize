@@ -13,6 +13,7 @@ const flush = () => new Promise((r) => setImmediate(r));
 
 function fixture(enforced = false) {
   const store = { settings: { enabled: true, preset: 'balanced', feeds: {} }, enforcement: { enforced, lastSeen: 0 } };
+  const session = {};
   const messages = [];
   const listeners = {};
   const port = {
@@ -22,10 +23,16 @@ function fixture(enforced = false) {
   };
   const chrome = {
     runtime: { connectNative: () => port, getManifest: () => ({ version: '0.0.0' }) },
-    storage: { local: {
-      get: async (key) => ({ [key]: structuredClone(store[key]) }),
-      set: async (values) => Object.assign(store, structuredClone(values)),
-    } },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: structuredClone(store[key]) }),
+        set: async (values) => Object.assign(store, structuredClone(values)),
+      },
+      session: {
+        get: async (key) => ({ [key]: structuredClone(session[key]) }),
+        set: async (values) => Object.assign(session, structuredClone(values)),
+      },
+    },
   };
   const module = { exports: {} };
   runInNewContext(outputFiles[0].text, {
@@ -33,9 +40,10 @@ function fixture(enforced = false) {
     setTimeout: () => {}, // Responses/disconnects are explicitly driven by each test.
   });
   return {
-    api: module.exports, store, messages,
+    api: module.exports, store, session, messages,
     reply: (request, data, ok = true, error) => listeners.message({ id: request.id, data, ok, error }),
-    push: (settings, enforced = false) => listeners.message({ id: 'push', ok: true, data: { settings, enforced } }),
+    push: (settings, enforced = false, locked) =>
+      listeners.message({ id: 'push', ok: true, data: { settings, enforced, ...(locked !== undefined ? { locked } : {}) } }),
     disconnect: () => {
       chrome.runtime.lastError = { message: 'Specified native messaging host not found.' };
       listeners.disconnect();
@@ -87,6 +95,39 @@ await check('an unsolicited push updates settings/enforcement and invalidates ol
   await flush();
   assert.equal(f.store.settings.preset, 'strict');
   assert.equal(f.store.enforcement.enforced, true);
+});
+
+await check('hello, heartbeat, and unsolicited push track locked state in memory and session storage', async () => {
+  const f = fixture();
+  const hello = f.api.hello();
+  await flush();
+  f.reply(f.messages[0], { settings: f.store.settings, enforced: true, locked: true });
+  await hello;
+  assert.equal(f.api.isLocked(), true);
+  assert.equal(f.session.companionLock, true);
+  let state = await f.api.getCompanionState();
+  assert.equal(state.installed, true);
+  assert.equal(state.locked, true);
+
+  // Unsolicited push carrying locked: false (key plugged in) updates immediately and persists to session.
+  f.push(f.store.settings, true, false);
+  await flush();
+  await flush();
+  assert.equal(f.api.isLocked(), false);
+  assert.equal(f.session.companionLock, false);
+  state = await f.api.getCompanionState();
+  assert.equal(state.installed, true);
+  assert.equal(state.locked, false);
+
+  // Push carrying locked: true (key removed) re-locks immediately.
+  f.push(f.store.settings, true, true);
+  await flush();
+  await flush();
+  assert.equal(f.api.isLocked(), true);
+  assert.equal(f.session.companionLock, true);
+  state = await f.api.getCompanionState();
+  assert.equal(state.installed, true);
+  assert.equal(state.locked, true);
 });
 
 await check('a push wins over a set-settings response already in flight', async () => {

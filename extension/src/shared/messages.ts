@@ -121,6 +121,7 @@ export interface GetCompanionRequest {
 
 export interface CompanionState {
   installed: boolean;
+  locked: boolean;
 }
 
 /** A page decided its own site should be blocked (explicit images, or an adult label). */

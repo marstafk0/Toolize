@@ -77,9 +77,11 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
             var keys = store.Keys;
             if (keys.Count == 0)
             {
+                var wasEnrolled = locks.State.Enrolled;
                 _last = UnlockStatus.Absent;
                 var none = new LockState { Enrolled = false, KeyPresent = false };
                 locks.Update(none);
+                if (wasEnrolled) extension?.SettingsChanged();
                 return none;
             }
 
@@ -98,6 +100,7 @@ public sealed class UnlockService(StateStore store, LockService locks, ILogger<U
                     case UnlockStatus.Verified:
                         log.LogInformation("unlocked by {Key}", check.Key!.Name);
                         store.Note($"unlocked by key '{check.Key.Name}'");
+                        notifySettings = true;
                         break;
                     case UnlockStatus.Absent when wasVerified:
                         log.LogInformation("key removed — locked");

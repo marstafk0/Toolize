@@ -344,6 +344,53 @@ try {
   check('an obviously explicit frame still blurs it straight away', !!obvious, JSON.stringify(await vState('tolerance')));
   await page.evaluate(() => document.getElementById('tolerance').remove());
 
+  // Use one video on a separate page so every debug sample belongs to this test.
+  // The safety-only overrides run even without WebGPU; no explicit pixels are used.
+  const safetyVideoPage = await context.newPage();
+  await safetyVideoPage.goto(`${BASE}/pages/regressions.html`, { waitUntil: 'domcontentloaded' });
+  const frameSamples = [];
+  safetyVideoPage.on('console', (msg) => {
+    const prefix = '[toolize:video-frame] ';
+    if (msg.text().startsWith(prefix)) frameSamples.push(JSON.parse(msg.text().slice(prefix.length)));
+  });
+  await safetyVideoPage.evaluate(() => {
+    const v = document.createElement('video');
+    Object.assign(v, { src: '/media/clip-a.webm', muted: true, loop: true, autoplay: true });
+    v.dataset.tzTest = '__tz_test_clean';
+    document.body.append(v);
+    v.play().catch(() => {});
+  });
+  const safetyTag = (tag) => safetyVideoPage.evaluate((tag) => { document.querySelector('video').dataset.tzTest = tag; }, tag);
+  await waitFor(() => safetyVideoPage.evaluate(() => document.querySelector('video').getAttribute('data-tz') === 'clean'));
+  await safetyTag('__tz_test_safety_only');
+  const spike = await waitFor(() => frameSamples.find((s) => s.safety === 0.95), { timeout: 6000, interval: 25 });
+  await safetyTag('__tz_test_clean'); // exactly one noisy frame, then ordinary clean frames
+  await waitFor(() => frameSamples.length >= 4 && frameSamples.at(-1).window.every((f) => f === 'clean'), { timeout: 15_000 });
+  check('a shown video tolerates one safety-only 0.95 frame', !!spike && spike.neutral === 1 && !spike.obvious &&
+    spike.verdict === 'clean' && frameSamples.filter((s) => s.safety === 0.95).length === 1 &&
+    frameSamples.every((s) => s.verdict === 'clean'), JSON.stringify(spike));
+  frameSamples.length = 0;
+  await safetyTag('__tz_test_flag');
+  const explicit = await waitFor(() => frameSamples[0], { timeout: 6000, interval: 25 });
+  check('a shown video blurs on the first corroborated explicit frame', explicit?.porn === 0.99 && explicit.obvious &&
+    explicit.verdict === 'blocked' && (process.env.NO_GPU || explicit.safety === 0.99) &&
+    explicit.window.filter((f) => f === 'flagged').length === 1, JSON.stringify(explicit));
+  // Borderline safety without NSFWJS agreement must not strand a new preview hidden.
+  await safetyVideoPage.evaluate(() => document.querySelector('video').remove());
+  frameSamples.length = 0;
+  await safetyVideoPage.evaluate(() => {
+    const v = document.createElement('video');
+    Object.assign(v, { src: '/media/clip-a.webm', muted: true, loop: true, autoplay: true });
+    v.dataset.tzTest = '__tz_test_safety_borderline';
+    document.body.append(v);
+    v.play().catch(() => {});
+  });
+  const borderlineSafety = await waitFor(() => frameSamples[0], { timeout: 6000 });
+  check('a new preview reveals on borderline safety-only 0.6', borderlineSafety?.safety === 0.6 &&
+    borderlineSafety.neutral === 1 && borderlineSafety.frame === 'clean' && borderlineSafety.verdict === 'clean', JSON.stringify(borderlineSafety));
+  await safetyVideoPage.close();
+  await page.bringToFront();
+
   // A new video (a Short, a feed preview) with a flagged frame stays blurred but keeps
   // playing, so it can clear itself; pausing it froze Shorts blurred for good.
   await addVideo('doubtful', '__tz_test_mild_once_d');

@@ -16,19 +16,19 @@
 
   <section>
     <h2>Sensitivity</h2>
-    <div class="seg" id="preset">
-      <button data-value="strict">Strict</button>
-      <button data-value="balanced">Balanced</button>
-      <button data-value="relaxed">Relaxed</button>
+    <div class="seg" id="preset" role="group" aria-label="Sensitivity">
+      <button type="button" data-value="strict">Strict</button>
+      <button type="button" data-value="balanced">Balanced</button>
+      <button type="button" data-value="relaxed">Relaxed</button>
     </div>
     <p class="hint" id="preset-hint"></p>
   </section>
 
   <section>
     <h2>Reveal mode</h2>
-    <div class="seg" id="mode">
-      <button data-value="safe">Safe reveal</button>
-      <button data-value="fast">Detect, then blur</button>
+    <div class="seg" id="mode" role="group" aria-label="Reveal mode">
+      <button type="button" data-value="safe">Safe reveal</button>
+      <button type="button" data-value="fast">Detect, then blur</button>
     </div>
     <p class="hint" id="mode-hint"></p>
   </section>
@@ -99,7 +99,10 @@
       <summary><h2>Why was this blurred?</h2></summary>
       <div class="verdict-tools">
         <label><input type="checkbox" id="verdict-blurred-only" checked /> Blurred only</label>
-        <button id="verdict-copy" type="button">Copy as text</button>
+        <div class="verdict-actions">
+          <button id="verdict-copy" type="button">Copy as text</button>
+          <button id="verdict-copy-all" type="button">Copy all (incl. shown)</button>
+        </div>
       </div>
       <div id="verdict-list"></div>
       <p class="hint" id="verdict-empty">No recent blurred verdicts for this tab.</p>
@@ -108,7 +111,10 @@
     </details>
   </section>
 
-  <p class="hint locked" id="lock-note"></p>
+  <div class="lock-banner" id="lock-banner" hidden>
+    <p class="hint locked" id="lock-note" role="alert"></p>
+    <button type="button" id="lock-dismiss" aria-label="Dismiss error" title="Dismiss">×</button>
+  </div>
   <footer id="engine">Classifier: starting…</footer>
   <footer id="companion"></footer>
   <script src="popup.js"></script>

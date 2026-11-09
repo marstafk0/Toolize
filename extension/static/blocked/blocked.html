@@ -13,13 +13,18 @@
     @media (prefers-color-scheme: dark) { body { background: #1b1b1a; color: #edebe6; } }
     main { max-width: 30rem; padding: 2rem; text-align: center; }
     h1 { font-size: 1.4rem; margin: 0 0 .75rem; }
-    p { color: #6b6862; margin: .5rem 0; }
+    p { color: #64615b; margin: .5rem 0; }
     @media (prefers-color-scheme: dark) { p { color: #9c988f; } }
     .mark { width: 54px; height: 54px; border-radius: 50%; background: #2f5d50; margin: 0 auto 1.25rem; position: relative; }
     .mark::after { content: ""; position: absolute; inset: 45% 25%; background: #fff; border-radius: 2px; }
     button {
       margin-top: 1.25rem; font: inherit; padding: .45rem 1rem; border-radius: 6px; cursor: pointer;
       border: 1px solid #c9c5bd; background: transparent; color: inherit;
+    }
+    button:focus-visible { outline: 2px solid #2f5d50; outline-offset: 2px; }
+    @media (prefers-color-scheme: dark) {
+      button { border-color: #4a4842; }
+      button:focus-visible { outline-color: #6fae99; }
     }
     #status { min-height: 1.5em; }
   </style>

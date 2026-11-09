@@ -174,11 +174,12 @@ try {
   });
   for (const end = Date.now() + 60_000; Date.now() < end;) {
     report.engine = await sw.evaluate(() => chrome.runtime.sendMessage({ target: 'offscreen', kind: 'engineInfo' })).catch(() => null);
-    if (report.engine?.ready && report.engine.safety !== 'loading') break;
+    if (report.engine?.ready && report.engine.safety !== 'loading' && !report.engine.warming) break;
     await wait(500);
   }
   console.log('Engine:', JSON.stringify(report.engine));
   if (!report.engine?.ready || report.engine.safety !== 'webgpu') throw new Error('trace requires the real WebGPU safety model');
+  if (report.engine.warming) throw new Error('trace requires shader warm-up to finish before playback');
 
   async function trace(item, local = false) {
     const page = await context.newPage();
@@ -190,6 +191,7 @@ try {
     try {
       if (local) await download(item);
       await page.goto(local ? base : item.url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      await page.bringToFront();
       if (local) {
         await page.evaluate((src) => {
           const v = document.createElement('video');
@@ -222,7 +224,7 @@ try {
         }
         row.playback.push(await page.evaluate(() => {
           const v = document.querySelector('video');
-          const state = v ? { t: Date.now(), at: v.currentTime, paused: v.paused, state: v.getAttribute('data-tz') } : { missing: true };
+          const state = v ? { t: Date.now(), at: v.currentTime, paused: v.paused, state: v.getAttribute('data-tz'), visible: !document.hidden } : { missing: true };
           // Ordinary allowlisted clips only: resume after a model-triggered pause to
           // collect the rest of the minute, recording that intervention explicitly.
           if (v?.paused && !v.ended) v.play().catch(() => {});
@@ -235,6 +237,9 @@ try {
       const tail = await sw.evaluate(async (id) => (await chrome.storage.session.get('tabVerdicts')).tabVerdicts?.[id] ?? [], tabId);
       for (const verdict of tail.filter((r) => r.kind === 'video')) if (!seen.has(JSON.stringify(verdict))) row.verdicts.push(verdict);
       if (!row.samples.length) throw new Error('no per-frame diagnostics: build with --dev');
+      if (row.samples.filter((sample) => Number.isFinite(sample.safety)).length < 3) {
+        throw new Error('fewer than three safety-scored frames: keep the trace visible and run browser tests serially');
+      }
       row.elapsedMs = Date.now() - started;
       row.blurred = row.samples.some((s) => s.verdict === 'blocked');
       // Count triggering transitions, not subsequent clean samples while the video
@@ -248,7 +253,8 @@ try {
     } catch (e) {
       const error = page.locator('.ytp-error-content-wrap, #error-screen').first();
       const reason = await error.count() ? await error.innerText().catch(() => '') : '';
-      report.attempts.push({ ...item, error: e.message, reason: reason.slice(0, 500) });
+      report.attempts.push({ ...item, error: e.message, reason: reason.slice(0, 500), samples: row.samples,
+        playback: row.playback, engine: await sw.evaluate(() => chrome.runtime.sendMessage({ target: 'offscreen', kind: 'engineInfo' })).catch(() => null) });
       console.log(`Unavailable ${item.name ?? item.url}: ${reason || e.message}`);
       save();
       return false;

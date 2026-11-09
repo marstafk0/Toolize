@@ -115,6 +115,13 @@ replaces the historical `zipserve.py` / corpus-page evaluation for explicit data
 
 ## Choices, measured
 
+- **Unpublished five-seed ensemble:** `ensemble-audit.md` records the paired
+  seeds 0-4, full and deduplicated recall, category/channel holdouts, single-tower
+  fp16 / packed-fp32-head export, and actual WebGPU benchmark. Run
+  `retrain-ensemble.py base-work thumbnail-work video-work output-work` using
+  existing numeric artifacts only. The local export is `work/safety-v3e.onnx`;
+  the v2 model pin is unchanged. See the audit's explicit release recommendation.
+
 - **Unpublished video-frame v3 candidate:** `video-frame-audit.md` records the
   channel-disjoint ordinary-frame corpus, rebuilt Commons label filter, paired
   category/channel evaluation, and release gate. The candidate reduces ordinary

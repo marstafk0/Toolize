@@ -10,7 +10,7 @@ import type {
 } from '../shared/messages';
 import { CATALOG, feedKey } from '../shared/feeds';
 import { PRESETS, type Preset } from '../shared/policy';
-import { loadSettings, onSettingsChanged, type RevealMode, type Settings } from '../shared/settings';
+import { DEFAULT_SETTINGS, loadSettings, onSettingsChanged, type RevealMode, type Settings, type YouTubeRestrict } from '../shared/settings';
 import type { VerdictEntry } from '../shared/verdicts';
 
 // Settings shown here are a cache of what the desktop app holds. When the app is
@@ -27,9 +27,71 @@ const MODE_HINTS: Record<RevealMode, string> = {
   safe: 'Images stay blurred until checked. No flashes.',
   fast: 'Images show immediately; flagged ones blur after checking. Can flash.',
 };
+const PRESET_STRENGTH: Record<Preset, number> = { strict: 3, balanced: 2, relaxed: 1 };
+const YT_STRENGTH: Record<YouTubeRestrict, number> = { off: 0, moderate: 1, strict: 2 };
+
+let currentSettings: Settings = DEFAULT_SETTINGS;
+let companionConnected = false;
+let companionLocked = false;
+let lastEngineInfo: EngineInfo | null = null;
+const baseLabels = new WeakMap<Element, string>();
+
+function setBadge(el: Element | null, needsKey: boolean): void {
+  if (!el) return;
+  let base = baseLabels.get(el);
+  if (base === undefined) {
+    base = el.textContent ?? '';
+    baseLabels.set(el, base);
+  }
+  el.textContent = base;
+  if (needsKey) {
+    const badge = document.createElement('span');
+    badge.className = 'needs-key';
+    badge.title = 'Needs your unlock key';
+    badge.textContent = '🔒';
+    el.append(badge);
+  }
+}
+
+function renderLockHints(s: Settings): void {
+  const gated = companionConnected && companionLocked;
+  setBadge(document.querySelector('header h1'), gated && s.enabled);
+  setBadge($('blockAdultSites').closest('.row')?.querySelector('h2') ?? null, gated && s.blockAdultSites);
+  setBadge($('wordFilter').closest('.row')?.querySelector('h2') ?? null, gated && s.wordFilter);
+  setBadge($('safeSearch').closest('.row')?.querySelector('h2') ?? null, gated && s.safeSearch);
+
+  $('preset').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    const val = b.dataset.value as Preset;
+    setBadge(b, gated && PRESET_STRENGTH[val] < PRESET_STRENGTH[s.preset]);
+  });
+  $('mode').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    const val = b.dataset.value as RevealMode;
+    setBadge(b, gated && s.mode === 'safe' && val === 'fast');
+  });
+  $('youtubeRestrict').querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+    const val = b.dataset.value as YouTubeRestrict;
+    setBadge(b, gated && YT_STRENGTH[val] < YT_STRENGTH[s.youtubeRestrict]);
+  });
+  document.querySelectorAll<HTMLInputElement>('input[data-feed]').forEach((i) => {
+    const label = i.closest('.feed')?.querySelector('.label') ?? null;
+    setBadge(label, gated && !!s.feeds?.[i.dataset.feed!]);
+  });
+}
+
+function showLockNote(message: string): void {
+  const banner = $('lock-banner');
+  const note = $('lock-note');
+  note.textContent = message;
+  banner.hidden = !message;
+}
 
 /** One switch per feed toggle in the catalog. Turning one off again needs the key. */
 function buildFeeds(): void {
+  const details = $<HTMLDetailsElement>('feeds');
+  details.open = localStorage.getItem('feedsOpen') === 'true';
+  details.addEventListener('toggle', (e) => {
+    if (e.target === details) localStorage.setItem('feedsOpen', String(details.open));
+  });
   const host = $('feed-sites');
   for (const site of CATALOG) {
     const h = document.createElement('h3');
@@ -61,6 +123,7 @@ function buildFeeds(): void {
 }
 
 function render(s: Settings): void {
+  currentSettings = s;
   $<HTMLInputElement>('enabled').checked = s.enabled;
   $<HTMLInputElement>('blockAdultSites').checked = s.blockAdultSites;
   $<HTMLInputElement>('wordFilter').checked = s.wordFilter;
@@ -73,6 +136,7 @@ function render(s: Settings): void {
   $('mode-hint').textContent = MODE_HINTS[s.mode];
   document.querySelectorAll<HTMLInputElement>('input[data-feed]').forEach((i) => (i.checked = !!s.feeds?.[i.dataset.feed!]));
   document.body.style.opacity = s.enabled ? '1' : '0.75';
+  renderLockHints(s);
 }
 
 /**
@@ -85,9 +149,9 @@ async function change(patch: Record<string, unknown>): Promise<void> {
   const result: SetSettingsResult = await chrome.runtime.sendMessage(req);
   if (result.ok) {
     render(result.settings as unknown as Settings);
-    $('lock-note').textContent = '';
+    showLockNote('');
   } else {
-    $('lock-note').textContent = result.error;
+    showLockNote(result.error);
     render(await loadSettings()); // snap the controls back to what's actually in force
   }
 }
@@ -102,6 +166,7 @@ function bindSeg(id: 'preset' | 'mode' | 'youtubeRestrict'): void {
 let tabVerdicts: VerdictEntry[] = [];
 let verdictTabId: number | undefined;
 let renderedVerdicts = '';
+let copyStatusTimer: ReturnType<typeof setTimeout> | null = null;
 
 function visibleVerdicts(): VerdictEntry[] {
   return tabVerdicts.filter((v) => !$<HTMLInputElement>('verdict-blurred-only').checked || v.decision === 'blocked');
@@ -110,6 +175,12 @@ function visibleVerdicts(): VerdictEntry[] {
 function timeAgo(at: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
   return seconds < 60 ? `${seconds}s ago` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ago` : `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function formatHms(at: number): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function fullScores(v: VerdictEntry): string {
@@ -124,9 +195,65 @@ function fullScores(v: VerdictEntry): string {
   return lines.join('\n');
 }
 
+function formatVerdictCopy(entries: VerdictEntry[]): string {
+  const version = chrome.runtime.getManifest().version;
+  const info = lastEngineInfo;
+  const engine = info?.ready ? `${info.model} (${info.backend})` : (info?.backend ?? 'unknown');
+  const safetyOn = info?.safety === 'webgpu' || entries.some((v) => v.scores.safety !== undefined);
+  const header = `Toolize v${version} | preset ${currentSettings.preset} | engine ${engine} | safety ${safetyOn ? 'on' : 'off'}`;
+  const lines = entries.map((v) => {
+    const s = v.scores;
+    const why = v.why.map((w) => w.replace(/\s*>\s*/g, '>')).join('; ');
+    const safetyPart = s.safety !== undefined ? `safety ${s.safety.toFixed(2)} ` : '';
+    const nsfwShort = `n${s.neutral.toFixed(2)} p${s.porn.toFixed(2)} h${s.hentai.toFixed(2)} s${s.sexy.toFixed(2)} d${s.drawing.toFixed(2)}`;
+    const fullPart = `${safetyPart}porn ${s.porn.toFixed(2)} hentai ${s.hentai.toFixed(2)} sexy ${s.sexy.toFixed(2)} neutral ${s.neutral.toFixed(2)} drawing ${s.drawing.toFixed(2)}`;
+    const tilesPart = s.tiles ? ` | tiles p${s.tiles.porn.toFixed(2)} h${s.tiles.hentai.toFixed(2)}` : '';
+    const framePart = v.frameInfo ? ` | frame ${v.frameInfo.frame} obvious=${v.frameInfo.obvious} [${v.frameInfo.window.join(',')}]` : '';
+    return `${formatHms(v.at)} ${v.kind} ${v.decision === 'blocked' ? 'blurred' : 'shown'} ${why} | ${nsfwShort} (${fullPart})${tilesPart} | ${v.preset} ${v.size.w}×${v.size.h}${framePart}`;
+  });
+  return [header, ...lines].join('\n');
+}
+
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.append(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function showCopyStatus(ok: boolean, label = 'Copied ✓'): void {
+  const status = $('verdict-copy-status');
+  const copyBtn = $<HTMLButtonElement>('verdict-copy');
+  if (copyStatusTimer) clearTimeout(copyStatusTimer);
+  status.className = `hint ${ok ? 'ok' : 'bad'}`;
+  status.textContent = ok ? label : 'Could not copy — clipboard access was denied.';
+  if (ok) copyBtn.textContent = 'Copied ✓';
+  copyStatusTimer = setTimeout(() => {
+    status.textContent = '';
+    status.className = 'hint';
+    copyBtn.textContent = 'Copy as text';
+    copyStatusTimer = null;
+  }, 1500);
+}
+
 function renderVerdicts(): void {
   const rows = visibleVerdicts();
-  const signature = JSON.stringify([verdictTabId, rows]);
+  const signature = JSON.stringify([verdictTabId, rows, tabVerdicts.length]);
   if (signature === renderedVerdicts) {
     $('verdict-list').querySelectorAll<HTMLElement>('time').forEach((el) => { el.textContent = timeAgo(Number(el.dataset.at)); });
     return;
@@ -167,6 +294,7 @@ function renderVerdicts(): void {
   $('verdict-empty').textContent = $<HTMLInputElement>('verdict-blurred-only').checked
     ? 'No recent blurred verdicts for this tab.' : 'No recent verdicts for this tab.';
   $<HTMLButtonElement>('verdict-copy').disabled = rows.length === 0;
+  $<HTMLButtonElement>('verdict-copy-all').disabled = tabVerdicts.length === 0;
 }
 
 function bindVerdicts(): void {
@@ -177,15 +305,12 @@ function bindVerdicts(): void {
   });
   $('verdict-blurred-only').addEventListener('change', renderVerdicts);
   $('verdict-copy').addEventListener('click', async () => {
-    const text = visibleVerdicts().map((v) =>
-      `${new Date(v.at).toISOString()} (${timeAgo(v.at)}) · ${v.kind} · ${v.decision === 'blocked' ? 'blurred' : 'shown'}\n${v.why.join('; ')}\n${fullScores(v)}`,
-    ).join('\n\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      $('verdict-copy-status').textContent = 'Copied.';
-    } catch {
-      $('verdict-copy-status').textContent = 'Could not copy. Try again.';
-    }
+    const ok = await copyTextWithFallback(formatVerdictCopy(visibleVerdicts()));
+    showCopyStatus(ok, 'Copied ✓');
+  });
+  $('verdict-copy-all').addEventListener('click', async () => {
+    const ok = await copyTextWithFallback(formatVerdictCopy(tabVerdicts));
+    showCopyStatus(ok, 'Copied all ✓');
   });
   renderVerdicts();
 }
@@ -206,13 +331,22 @@ async function refreshStats(): Promise<void> {
     verdictTabId = undefined;
     tabVerdicts = [];
   }
-  renderVerdicts();
   const companion: CompanionState = await chrome.runtime.sendMessage({ target: 'background', kind: 'companion' });
+  const locked = companion.installed && companion.locked;
+  if (companion.installed !== companionConnected || locked !== companionLocked) {
+    companionConnected = companion.installed;
+    companionLocked = locked;
+    renderLockHints(currentSettings);
+  }
   $('companion').textContent = companion.installed
-    ? 'Toolize app: connected — settings are managed there'
+    ? locked
+      ? 'Toolize app: connected — weakening changes need your key'
+      : 'Toolize app: connected — key present, changes allowed'
     : 'Toolize app: not installed';
 
   const info: EngineInfo = await chrome.runtime.sendMessage({ target: 'background', kind: 'engineInfo' } satisfies GetEngineInfoRequest);
+  lastEngineInfo = info;
+  renderVerdicts();
   const el = $('engine');
   const slow = info.backend === 'cpu';
   el.classList.toggle('bad', !info.ready || slow);
@@ -223,6 +357,7 @@ async function refreshStats(): Promise<void> {
 }
 
 (async () => {
+  $('lock-dismiss').addEventListener('click', () => showLockNote(''));
   buildFeeds();
   bindVerdicts();
   onSettingsChanged(render);

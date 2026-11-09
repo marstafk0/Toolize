@@ -133,6 +133,9 @@ static async Task WatchSettingsLoopAsync(
                 if (data.TryGetProperty("settings", out var settings)
                     && data.TryGetProperty("enforced", out var enforced))
                 {
+                    var locked = data.TryGetProperty("locked", out var lockedProp)
+                                 && lockedProp.ValueKind is JsonValueKind.True or JsonValueKind.False
+                                 && lockedProp.GetBoolean();
                     var push = new
                     {
                         id = "push",
@@ -141,6 +144,7 @@ static async Task WatchSettingsLoopAsync(
                         {
                             settings,
                             enforced = enforced.GetBoolean(),
+                            locked,
                         },
                     };
                     await WriteProtectedAsync(stdout, writeGate, JsonSerializer.Serialize(push, Protocol.Json));

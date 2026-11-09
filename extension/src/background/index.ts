@@ -12,7 +12,7 @@ import type {
 } from '../shared/messages';
 import { DEFAULT_SETTINGS, loadSettings, type Settings } from '../shared/settings';
 import { MAX_TAB_VERDICTS, type VerdictEntry } from '../shared/verdicts';
-import { hello, isConnected, requestSettings, startHeartbeat } from './companion';
+import { getCompanionState, hello, isConnected, requestSettings, startHeartbeat } from './companion';
 import { learn, reconcileDnr, scheduleListUpdates, syncDynamicRules, unlearn, updateList } from './blocklist';
 
 /**
@@ -184,8 +184,8 @@ chrome.runtime.onMessage.addListener((msg: Message, sender, sendResponse) => {
       return true;
 
     case 'companion':
-      sendResponse({ installed: isConnected() } satisfies CompanionState);
-      return false;
+      getCompanionState().then((state) => sendResponse(state satisfies CompanionState));
+      return true;
 
     case 'learnSite':
       // The frame's own URL as Chrome reports it, not anything the page could claim.

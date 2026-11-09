@@ -18,7 +18,7 @@ const HEARTBEAT_MINUTES = 0.5;
 interface PipeResponse {
   id: string;
   ok: boolean;
-  data?: { settings?: Settings; service?: string; enforced?: boolean };
+  data?: { settings?: Settings; service?: string; enforced?: boolean; locked?: boolean };
   error?: string;
   code?: string;
 }
@@ -32,6 +32,7 @@ interface PipeResponse {
  * the app would be the easiest bypass in the product.
  */
 const ENFORCED_KEY = 'enforcement';
+const LOCK_KEY = 'companionLock';
 
 export interface EnforcementCache {
   enforced: boolean;
@@ -45,6 +46,11 @@ export async function readEnforcement(): Promise<EnforcementCache> {
 
 async function noteEnforcement(enforced: boolean): Promise<void> {
   await chrome.storage.local.set({ [ENFORCED_KEY]: { enforced, lastSeen: Date.now() } satisfies EnforcementCache });
+}
+
+async function noteLocked(next: boolean): Promise<void> {
+  locked = next;
+  await chrome.storage.session?.set({ [LOCK_KEY]: next });
 }
 
 /**
@@ -74,6 +80,7 @@ export interface CompanionStats {
 
 let port: chrome.runtime.Port | null = null;
 let connected = false;
+let locked: boolean | undefined;
 let seq = 0;
 let generation = 0;
 let cacheChain: Promise<unknown> = Promise.resolve();
@@ -85,6 +92,7 @@ function adopt(data: PipeResponse['data'], expected: number): Promise<Settings |
   const write = cacheChain.catch(() => {}).then(async () => {
     if (generation !== expected) return null;
     if (data?.enforced !== undefined) await noteEnforcement(data.enforced === true);
+    if (data?.locked !== undefined) await noteLocked(data.locked === true);
     if (generation !== expected || !data?.settings) return null;
     return saveSettingsLocal(data.settings);
   });
@@ -104,6 +112,7 @@ function connect(): chrome.runtime.Port | null {
       } else if (msg.id === 'push' && msg.ok && msg.data) {
         // The authority's latest state wins over every response already in flight.
         connected = true;
+        if (msg.data.locked !== undefined) locked = msg.data.locked === true;
         void adopt({ ...msg.data, enforced: msg.data.enforced === true }, ++generation)
           .catch((e) => console.warn('[toolize] settings push failed', e));
       }
@@ -114,6 +123,7 @@ function connect(): chrome.runtime.Port | null {
       pending.clear();
       port = null;
       connected = false;
+      locked = false;
     });
     port = p;
     return p;
@@ -121,6 +131,7 @@ function connect(): chrome.runtime.Port | null {
     // Host not installed: the extension runs standalone.
     port = null;
     connected = false;
+    locked = false;
     return null;
   }
 }
@@ -144,6 +155,15 @@ function send(verb: string, args?: unknown): Promise<PipeResponse> {
 }
 
 export const isConnected = (): boolean => connected;
+export const isLocked = (): boolean => connected && locked === true;
+
+export async function getCompanionState(): Promise<{ installed: boolean; locked: boolean }> {
+  if (locked === undefined && chrome.storage.session) {
+    const got = await chrome.storage.session.get(LOCK_KEY);
+    if (typeof got[LOCK_KEY] === 'boolean' && locked === undefined) locked = got[LOCK_KEY] as boolean;
+  }
+  return { installed: connected, locked: connected && locked === true };
+}
 
 /**
  * Asks the desktop app to allow a weakening change made on the extension's side. With

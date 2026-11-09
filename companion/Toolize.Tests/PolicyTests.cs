@@ -429,4 +429,87 @@ public sealed class ExtensionTrackerAndRevisionTests
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task Extension_responses_and_watch_settings_carry_locked_and_bump_on_key_transitions()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "toolize-lock-ext-test-" + Guid.NewGuid().ToString("n")[..8]);
+        var driveDir = Path.Combine(tempDir, "stick") + Path.DirectorySeparatorChar;
+        var prevFake = Environment.GetEnvironmentVariable("TOOLIZE_FAKE_DRIVES");
+        try
+        {
+            Directory.CreateDirectory(driveDir);
+            Environment.SetEnvironmentVariable("TOOLIZE_FAKE_DRIVES", driveDir);
+
+            var store = new StateStore(tempDir);
+            var locks = new Toolize.Service.LockService();
+            var tracker = new Toolize.Service.ExtensionTracker();
+            var unlock = new Toolize.Service.UnlockService(store, locks, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UnlockService>.Instance, tracker);
+            var enforcement = new Toolize.Service.EnforcementService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.EnforcementService>.Instance, dev: true);
+            var watchdog = new Toolize.Service.WatchdogService(store, tracker, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.WatchdogService>.Instance, dev: true);
+            var updates = new Toolize.Service.UpdateService(store, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.UpdateService>.Instance);
+            var doctor = new Toolize.Service.DoctorService(store, tracker, locks, enforcement, dev: true);
+            var handler = new Toolize.Service.RequestHandler(store, locks, unlock, enforcement, watchdog, updates, tracker, doctor, Microsoft.Extensions.Logging.Abstractions.NullLogger<Toolize.Service.RequestHandler>.Instance);
+
+            // 1. No key enrolled -> locked is false.
+            unlock.Refresh();
+            var helloUnlocked = await handler.HandleAsync(new Request(Verbs.ExtensionHello)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new ExtensionHelloArgs("0.9.2", "chrome", "id1"), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.False(helloUnlocked.Data!.Value.GetProperty("locked").GetBoolean());
+
+            // 2. Enroll key while stick is present -> Enrolled && KeyPresent -> locked is false, revision bumped on verification.
+            var revBeforeEnroll = tracker.Revision;
+            unlock.Enroll(driveDir, "Partner key");
+            Assert.True(tracker.Revision > revBeforeEnroll);
+            var hbPresent = await handler.HandleAsync(new Request(Verbs.ExtensionHeartbeat)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new ExtensionHeartbeatArgs("0.9.2", 0, 1, "chrome", "id1"), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.False(hbPresent.Data!.Value.GetProperty("locked").GetBoolean());
+
+            // 3. Remove key (move keyfile away) -> Refresh bumps revision, watch-settings wakes with locked: true.
+            var watchLockTask = handler.HandleAsync(new Request(Verbs.WatchSettings)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new WatchSettingsArgs(tracker.Revision), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.False(watchLockTask.IsCompleted);
+
+            var keyPath = FlashDriveProvider.KeyPath(driveDir);
+            var backupPath = Path.Combine(tempDir, "key.bak");
+            File.SetAttributes(keyPath, FileAttributes.Normal);
+            File.Move(keyPath, backupPath);
+            unlock.Refresh();
+
+            var watchLocked = await watchLockTask;
+            Assert.True(watchLocked.Ok);
+            Assert.True(watchLocked.Data!.Value.GetProperty("locked").GetBoolean());
+
+            var helloLocked = await handler.HandleAsync(new Request(Verbs.ExtensionHello)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new ExtensionHelloArgs("0.9.2", "chrome", "id1"), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.True(helloLocked.Data!.Value.GetProperty("locked").GetBoolean());
+
+            // 4. Plug key back in -> Refresh bumps revision on insertion/verification, watch-settings wakes with locked: false.
+            var watchUnlockTask = handler.HandleAsync(new Request(Verbs.WatchSettings)
+            {
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(new WatchSettingsArgs(tracker.Revision), Protocol.Json),
+            }, CancellationToken.None);
+            Assert.False(watchUnlockTask.IsCompleted);
+
+            File.Move(backupPath, keyPath);
+            unlock.Refresh();
+
+            var watchUnlocked = await watchUnlockTask;
+            Assert.True(watchUnlocked.Ok);
+            Assert.False(watchUnlocked.Data!.Value.GetProperty("locked").GetBoolean());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TOOLIZE_FAKE_DRIVES", prevFake);
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

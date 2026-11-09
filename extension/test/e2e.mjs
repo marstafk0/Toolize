@@ -388,6 +388,18 @@ try {
   const borderlineSafety = await waitFor(() => frameSamples[0], { timeout: 6000 });
   check('a new preview reveals on borderline safety-only 0.6', borderlineSafety?.safety === 0.6 &&
     borderlineSafety.neutral === 1 && borderlineSafety.frame === 'clean' && borderlineSafety.verdict === 'clean', JSON.stringify(borderlineSafety));
+  await safetyVideoPage.evaluate(() => document.querySelector('video').remove());
+  frameSamples.length = 0;
+  await safetyVideoPage.evaluate(() => {
+    const video = document.createElement('video');
+    Object.assign(video, { src: '/media/clip-a.webm', muted: true, loop: true, autoplay: true });
+    video.dataset.tzTest = '__tz_test_safety_startup';
+    document.body.append(video);
+    video.play().catch(() => {});
+  });
+  const startupSafety = await waitFor(() => frameSamples[0], { timeout: 6000 });
+  check('a new preview reveals on uncorroborated safety-only 0.8', startupSafety?.safety === 0.8 &&
+    startupSafety.neutral === 1 && startupSafety.frame === 'clean' && startupSafety.verdict === 'clean', JSON.stringify(startupSafety));
   await safetyVideoPage.close();
   await page.bringToFront();
 

@@ -1,6 +1,6 @@
 // Replay identical recorded scores through the actual before/after watcher code,
 // separating policy effects from differences in live playback/sampling positions.
-// node test/video-trace-replay.mjs <trace.json> <baseline git commit>
+// node test/video-trace-replay.mjs <trace.json> <baseline git commit> [out.json] [--startup]
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 
-const [input, baseline, outputFile] = process.argv.slice(2);
+const [input, baseline, outputFile] = process.argv.slice(2).filter((value) => value !== '--startup');
 if (!input || !baseline) throw new Error('usage: video-trace-replay.mjs <trace.json> <baseline commit>');
 const root = resolve(import.meta.dirname, '..');
 const report = JSON.parse(readFileSync(input, 'utf8'));
@@ -23,7 +23,7 @@ try {
     const output = join(temporary, `${mode}.mjs`);
     await esbuild.build({
       entryPoints: [join(root, 'src/content/video.ts')], outfile: output, bundle: true, format: 'esm',
-      define: { __DEV__: 'false' }, logLevel: 'silent',
+      define: { __DEV__: String(mode === 'after' && process.argv.includes('--startup')) }, logLevel: 'silent',
       plugins: mode === 'before' ? [{ name: 'baseline-sources', setup(build) {
         build.onLoad({ filter: /[\\/]src[\\/](?:content[\\/]video|shared[\\/]policy)\.ts$/ }, ({ path }) => {
           const relative = path.endsWith(`${join('content', 'video.ts')}`) ? 'content/video.ts' : 'shared/policy.ts';
@@ -39,8 +39,8 @@ try {
       const transitions = [];
       const watcher = new VideoWatcher({ classifyFrame: async () => current }, { set() {} }, { record: (...r) => transitions.push({ decision: r[1], frame: r[4], why: r[5] }) });
       watcher.settings = { enabled: true, preset: 'balanced' };
-      const video = { paused: false, currentTime: 0, duration: 1000, videoWidth: 448, videoHeight: 252, hasAttribute: () => false, pause() { throw new Error('YouTube should not pause'); } };
-      watcher.tracks.set(video, { recent: [], cleanStreak: 0, every: 1000, generation: 0, failures: 0 });
+      const video = { dataset: {}, paused: false, currentTime: 0, duration: 1000, videoWidth: 448, videoHeight: 252, hasAttribute: () => false, pause() { throw new Error('YouTube should not pause'); } };
+      watcher.tracks.set(video, { src: 'numeric-replay', recent: [], cleanStreak: 0, every: 1000, generation: 0, failures: 0 });
       for (const frame of row.samples) {
         const { porn, hentai, sexy, neutral, safety } = frame;
         current = { safety, whole: { porn, hentai, sexy, neutral, drawing: 1 - porn - hentai - sexy - neutral }, width: 448, height: 252 };

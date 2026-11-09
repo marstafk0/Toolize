@@ -398,8 +398,10 @@ try {
     video.play().catch(() => {});
   });
   const startupSafety = await waitFor(() => frameSamples[0], { timeout: 6000 });
-  check('a new preview reveals on uncorroborated safety-only 0.8', startupSafety?.safety === 0.8 &&
-    startupSafety.neutral === 1 && startupSafety.frame === 'clean' && startupSafety.verdict === 'clean', JSON.stringify(startupSafety));
+  // The dev-only looser startup rule was dropped (no benefit with safety-v3): a
+  // safety-only 0.8 frame on a never-shown preview stays blurred, as in production.
+  check('a new preview with uncorroborated safety-only 0.8 stays blurred (one rule for dev and prod)',
+    startupSafety?.safety === 0.8 && startupSafety.frame === 'flagged' && startupSafety.verdict === 'blocked', JSON.stringify(startupSafety));
   await safetyVideoPage.close();
   await page.bringToFront();
 

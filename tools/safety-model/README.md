@@ -95,6 +95,8 @@ $PY analyze-gap.py work/oof.npz work/shipped-probs.npz work/nsfwjs-scores.json w
 ```
 
 `corpus-train.npz` concatenates the Commons and 3,000 synthetic embeddings.
+The safe YouTube thumbnail audit, per-image backend comparisons, and unpublished
+hard-negative candidate are documented in [youtube-thumbnail-audit.md](youtube-thumbnail-audit.md).
 `head-probs.py` recovers the shipped MLP directly from the pinned ONNX, so a newly
 trained head never stands in for the shipped detector. `score-dataset.mjs` uses
 the built MobileNetV2 files with hardware WebGL, whole-image 224px RGB tensors and

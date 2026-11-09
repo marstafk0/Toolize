@@ -5,16 +5,18 @@
 //   npm run corpus
 //   HEADED=1 npm run corpus    (also shows misclassified thumbnails)
 //   MODEL=inception_v3 npm run corpus   (compare another NSFWJS model)
+//   SAFETY_MODEL=/path/to/candidate.onnx npm run corpus (isolated copy; never changes the pin)
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { findChromium, isolatedDist } from './chromium.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = isolatedDist(join(root, 'dist'));
+if (process.env.SAFETY_MODEL) copyFileSync(resolve(process.env.SAFETY_MODEL), join(dist, 'models/safety/safety.onnx'));
 // CORPUS_SERVER: another server speaking the same corpus API (e.g. a held-out dataset
 // sample served from memory); otherwise the local test server.
 const base = process.env.CORPUS_SERVER ?? 'http://localhost:8787';

@@ -1,0 +1,53 @@
+{
+  "n": 329,
+  "test_n": 66,
+  "fp": {
+    "v1_torch_training": 17,
+    "v1_cpu_training": 18,
+    "v1_cpu_browser": 18,
+    "v1_webgpu": 21,
+    "v1_wasm": 18,
+    "fp32_cpu_browser": 19,
+    "fp32_webgpu": 19,
+    "v2_cpu_training": 0,
+    "v2_cpu_browser": 0,
+    "v2_webgpu": 0
+  },
+  "test_fp": {
+    "v1_torch_training": 7,
+    "v1_cpu_training": 7,
+    "v1_cpu_browser": 7,
+    "v1_webgpu": 8,
+    "v1_wasm": 7,
+    "fp32_cpu_browser": 7,
+    "fp32_webgpu": 7,
+    "v2_cpu_training": 0,
+    "v2_cpu_browser": 0,
+    "v2_webgpu": 0
+  },
+  "max_gpu_cpu": 0.24809277057647705,
+  "max_resize": 0.9040339887142181,
+  "max_gpu_cpu_fp32": 2.7358531951904297e-05,
+  "max_wasm_cpu": 0.0018764734268188477,
+  "max_batch_delta": 1.1920928955078125e-07,
+  "max_padding_delta": 1.1920928955078125e-07,
+  "pipeline_balanced_fp": [
+    21,
+    1
+  ],
+  "v1_fp_by_channel": {
+    "3blue1brown": 3,
+    "computerphile": 5,
+    "kurzgesagt": 1,
+    "mkbhd": 0,
+    "nasa": 0,
+    "numberphile": 2,
+    "practical-engineering": 2,
+    "smarter-every-day": 3,
+    "standupmaths": 2,
+    "technology-connections": 2,
+    "veritasium": 1
+  },
+  "letterbox_original_fp": 18,
+  "letterbox_trimmed_fp": 13
+}

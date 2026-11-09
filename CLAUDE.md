@@ -51,7 +51,14 @@ about what each tier actually guarantees.
   98.72% → 98.86% (+0.14 pp); independent five-fold heads: 94.24% → 95.02% (+0.78 pp).
   Commons safe FP: 1.59% → 1.86% (+0.27 pp, 5/1,885 extra). Dataset drawn-style FP
   also rises (full replay 1.43% → 4.33%); see `tools/safety-model/anime-gap.md` for
-  counts, all candidates and limitations. **v2 (0.9.3)** adds ordinary YouTube thumbnails
+  counts, all candidates and limitations. **v3 (0.9.4)** is a 5-seed ensemble (heads
+  averaged in-graph, same interface) trained with v2's data plus 1,460 frames from 146
+  ordinary videos: held-out ordinary-frame FP 32/370 → 1/370 (8 unseen channels); real
+  YouTube 12-route trace 4/12 videos blurred → 0/12; NSFW recall a tie with v2 (5,238 vs
+  5,235; deduplicated 3,180 vs 3,177; drawn at v2 − 2, within ±4.7 seed noise); frozen
+  thumbnail set 0 → 2/66. Built by one agent, independently reproduced by another
+  (`tools/safety-model/ensemble-audit.md`, `ensemble-review.md`). Video measured on
+  YouTube only. **v2 (0.9.3)** adds ordinary YouTube thumbnails
   as hard negatives: thumbnail FP 19/329 → 5–6/329 on channels it never saw
   (leave-one-channel-out), NSFW recall under the full rule unchanged (5,235/5,322),
   swimwear and calibration unchanged (`tools/safety-model/youtube-thumbnail-audit.md`).

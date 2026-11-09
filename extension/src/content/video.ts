@@ -320,10 +320,9 @@ export class VideoWatcher {
       // Keep stronger safety hits and NSFWJS-supported hits in the normal window;
       // image policy and the NSFWJS-only fallback retain their existing thresholds.
       const nsfw = r.whole.porn + r.whole.hentai + r.whole.sexy;
-      const startup = __DEV__ && !t.revealed && t.verdict !== 'clean';
-      const safetyNoise = r.safety !== undefined && (startup
-        ? r.safety <= 0.9 && nsfw <= 0.15
-        : r.safety <= 0.7 && nsfw <= 0.3);
+      // (A looser startup variant was measured with safety-v3 and gave no benefit, so
+      // dev and production share this one rule.)
+      const safetyNoise = r.safety !== undefined && r.safety <= 0.7 && nsfw <= 0.3;
       const decision = decide(safetyNoise ? { ...r, safety: 0 } : r, th);
       const result: Frame = decision === 'clean' ? 'clean' : decision === 'refine' ? 'doubtful' : 'flagged';
       const obvious = isObviouslyExplicit(r, th);

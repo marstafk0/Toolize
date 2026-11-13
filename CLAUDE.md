@@ -96,10 +96,8 @@ about what each tier actually guarantees.
   anything doubtful it needs 3 consecutive clean frames. Back off to
   one sample every few seconds while a verdict is stable; drop to one video at a time
   when the classifier is saturated, so live frames never starve images and backgrounds.
-  A **dev-only** startup experiment uses safety <= 0.9 with NSFWJS sum <= 0.15 as
-  clean before first reveal; it is not promoted to production (identical-score replay
-  showed no improvement). The unpublished v3 frame candidate also fails the NSFW
-  recall gate; see `tools/safety-model/video-frame-audit.md`. The v2 pin stays put.
+  (A looser startup rule was measured with safety-v3 and gave no benefit; dev and
+  production share one rule.)
 - **Thresholds:** blur if porn > 0.55 OR hentai > 0.55 OR sexy > 0.75 (balanced).
   Presets strict / balanced / relaxed. For borderline whole-image porn/hentai scores
   (within 0.25 below a threshold), re-score on overlapping full-resolution tiles — a
